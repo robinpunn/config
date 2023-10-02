@@ -1,116 +1,70 @@
-# FreeCodeCamp JavaScript Certification
+## Foundry Flashloans
 
-### Palindrome Checker
+This repos was created to learn Foundry and Flashloans
 
-Return true if the given string is a palindrome. Otherwise, return false.
+**Foundry is a blazing fast, portable and modular toolkit for Ethereum
+application development written in Rust.**
 
-A palindrome is a word or sentence that's spelled the same way both forward and backward, ignoring punctuation, case, and spacing.
+Foundry consists of:
 
-Note: You'll need to remove all non-alphanumeric characters (punctuation, spaces and symbols) and turn everything into the same case (lower or upper case) in order to check for palindromes.
+- **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
+- **Cast**: Swiss army knife for interacting with EVM smart contracts, sending
+  transactions and getting chain data.
+- **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
+- **Chisel**: Fast, utilitarian, and verbose solidity REPL.
 
-We'll pass strings with varying formats, such as racecar, RaceCar, and race CAR among others.
+## Documentation
 
-We'll also pass strings with special symbols, such as 2A3*3a2, 2A3 3a2, and 2_A3*3#A2.
+https://book.getfoundry.sh/
 
-### Roman Numeral Converter
+## Usage
 
-Convert the given number into a roman numeral.<br>
+### Build
 
-<table>
-<tr>
-    <td>Roman numerals</td>	
-    <td>Arabic numerals</td>
-</tr>
-<tr>
-    <td>M</td>	
-    <td>1000</td>
-</tr>
-<tr>
-    <td>CM</td>	
-    <td>900</td>
-</tr>
-<tr>
-    <td>D</td>	
-    <td>500</td>
-</tr>
-<tr>
-    <td>CD</td>	
-    <td>400</td>
-</tr>
-<tr>
-    <td>C</td>	
-    <td>100</td>
-</tr>
-<tr>
-    <td>XC</td>	
-    <td>90</td>
-</tr>
-<tr>
-    <td>L</td>	
-    <td>50</td>
-</tr>
-<tr>
-    <td>XL</td>	
-    <td>40</td>
-</tr>
-<tr>
-    <td>X</td>	
-    <td>10</td>
-</tr>
-<tr>
-    <td>IX</td>	
-    <td>9</td>
-</tr>
-<tr>
-    <td>V</td>	
-    <td>5</td>
-</tr>
-<tr>
-    <td>IV</td>	
-    <td>4</td>
-</tr>
-<tr>
-    <td>I</td>	
-    <td>1</td>
-</tr>
-</table>
+```shell
+$ forge build
+```
 
-All roman numerals answers should be provided in upper-case.
+### Test
 
-### Caesar Cypher
+```shell
+$ forge test
+```
 
-One of the simplest and most widely known ciphers is a Caesar cipher, also known as a shift cipher. In a shift cipher the meanings of the letters are shifted by some set amount.
+### Format
 
-A common modern use is the <a href="https://www.freecodecamp.org/news/how-to-code-the-caesar-cipher-an-introduction-to-basic-encryption-3bf77b4e19f7/">ROT13</a> cipher, where the values of the letters are shifted by 13 places. Thus A ↔ N, B ↔ O and so on.
+```shell
+$ forge fmt
+```
 
-Write a function which takes a ROT13 encoded string as input and returns a decoded string.
+### Gas Snapshots
 
-All letters will be uppercase. Do not transform any non-alphabetic character (i.e. spaces, punctuation), but do pass them on.
+```shell
+$ forge snapshot
+```
 
-### Telephone Number Validator
-Return true if the passed string looks like a valid US phone number.
+### Anvil
 
-The user may fill out the form field any way they choose as long as it has the format of a valid US number. The following are examples of valid formats for US numbers (refer to the tests below for other variants):
+```shell
+$ anvil
+```
 
-<code>555-555-5555</code>
-<code>(555)555-5555</code>
-<code>(555) 555-5555</code>
-<code>555 555 5555</code>
-<code>5555555555</code>
-<code>1 555 555 5555</code>
+### Deploy
 
+```shell
+$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
+```
 
-For this challenge you will be presented with a string such as 800-692-7753 or 8oo-six427676;laskdjf. Your job is to validate or reject the US phone number based on any combination of the formats provided above. The area code is required. If the country code is provided, you must confirm that the country code is 1. Return true if the string is a valid US phone number; otherwise return false.
+### Cast
 
-### Cash Register
-Design a cash register drawer function checkCashRegister() that accepts purchase price as the first argument (price), payment as the second argument (cash), and cash-in-drawer (cid) as the third argument.
+```shell
+$ cast <subcommand>
+```
 
-cid is a 2D array listing available currency.
+### Help
 
-The checkCashRegister() function should always return an object with a status key and a change key.
-
-Return {status: "INSUFFICIENT_FUNDS", change: []} if cash-in-drawer is less than the change due, or if you cannot return the exact change.
-
-Return {status: "CLOSED", change: [...]} with cash-in-drawer as the value for the key change if it is equal to the change due.
-
-Otherwise, return {status: "OPEN", change: [...]}, with the change due in coins and bills, sorted in highest to lowest order, as the value of the change key.
+```shell
+$ forge --help
+$ anvil --help
+$ cast --help
+```
