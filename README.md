@@ -15,4 +15,4 @@ Collection of audits from audit contest platforms
 
 | Date       | Project                                                                  | Type           | Findings |
 | ---------- | ------------------------------------------------------------------------ | -------------- | -------- |
-| 06/06/2024 | [Dussehra](https://www.codehawks.com/contests/clx1ufwjy006g3d8ddjdk3qfr) | First Flight   |          |
+| 06/06/2024 | [Dussehra](https://www.codehawks.com/contests/clx1ufwjy006g3d8ddjdk3qfr) | First Flight   |  2H-2M   |
