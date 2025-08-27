@@ -1,0 +1,10 @@
+*.swp
+*.swo
+*.bak
+*.tmp
+*.pyc
+.cache/
+undo/
+shada/
+__pycache__/
+backups/
