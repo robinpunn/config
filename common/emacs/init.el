@@ -5,6 +5,9 @@
 (when (file-exists-p custom-file)
   (load custom-file))
 
+;; load trading journal functions
+(load-file (expand-file-name "capture-templates.el" user-emacs-directory))
+
 ;; remove GUI 
 (menu-bar-mode -1)
 (tool-bar-mode -1)

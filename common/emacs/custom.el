@@ -1,2 +1,2 @@
 ;; Load the theme
-(load-theme 'leuven-dark t)
+(load-theme 'tango-dark t)
