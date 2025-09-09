@@ -70,3 +70,78 @@
               (insert trade-text)
               (save-buffer)
               (message "%s trade template created for %s" trade-type ticker))))))))
+
+(defun my/create-trade-id ()
+  "Create a tradeID and property drawer for the current trade entry."
+  (interactive)
+  (save-excursion
+    ;; Check if we're under a *** date heading
+    (unless (save-excursion
+              (beginning-of-line)
+              (or (looking-at "^\\*\\*\\* ")
+                  (re-search-backward "^\\*\\*\\* " nil t)))
+      (error "Not in a trade entry (no *** date heading found)"))
+    
+    ;; Find the *** date heading
+    (unless (looking-at "^\\*\\*\\* ")
+      (re-search-backward "^\\*\\*\\* " nil t))
+    
+    ;; Store date position and check if property drawer already exists
+    (let ((date-pos (point)))
+      (forward-line 1)
+      (when (looking-at "^:PROPERTIES:")
+        (unless (y-or-n-p "Property drawer already exists. Overwrite? ")
+          (error "Aborted - property drawer already exists")))
+      
+      ;; Go back to date heading and find symbol from ** heading above
+      (goto-char date-pos)
+      (unless (re-search-backward "^\\*\\* \\(.*\\)$" nil t)
+        (error "Could not find ** symbol heading above current position"))
+      (let ((symbol (string-trim (match-string 1))))
+        
+        ;; Go back to date position and find type line
+        (goto-char date-pos)
+        (forward-line 1)
+        (let ((search-limit (save-excursion
+                              (if (re-search-forward "^\\*\\*\\*\\*" nil t)
+                                  (line-beginning-position)
+                                (point-max))))
+              (type-value nil)
+              (type-line-pos nil))
+          
+          ;; Search for "- type: " line
+          (while (and (< (point) search-limit)
+                      (not type-value))
+            (when (looking-at "^ *- type: \\(.*\\)$")
+              (setq type-value (string-trim (match-string 1)))
+              (setq type-line-pos (point)))
+            (forward-line 1))
+          
+          (unless type-value
+            (error "Could not find '- type: ' line in trade entry"))
+          
+          ;; Generate tradeID
+          (let* ((timestamp (format-time-string "%y%m%d-%H%M"))
+                 (trade-id (format "%s-%s" symbol timestamp)))
+            
+            ;; Determine if this is options or stock
+            (let ((trade-type (if (or (string= type-value "call") (string= type-value "put"))
+                                  "options"
+                                "stock")))
+              
+              ;; Remove the type line first (so positions don't shift)
+              (goto-char type-line-pos)
+              (beginning-of-line)
+              (kill-line 1)
+              
+              ;; Create property drawer after date heading
+              (goto-char date-pos)
+              (end-of-line)
+              (insert "\n:PROPERTIES:")
+              (insert (format "\n:TRADE_ID: %s" trade-id))
+              (insert (format "\n:TYPE:     %s" trade-type))
+              (insert (format "\n:DIRECTION: %s" type-value))
+              (insert "\n:STATUS:   open")
+              (insert "\n:END:"))
+            
+            (message "Trade ID created: %s" trade-id)))))))
