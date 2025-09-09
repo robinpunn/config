@@ -48,10 +48,10 @@
            (raw-trade-type (cdr (assoc 'type vals)))
            ;; Clean up the type field - remove quotes and trim whitespace
            (trade-type (string-trim (replace-regexp-in-string "\"" "" raw-trade-type)))
-           (kijun (cdr (assoc 'kijun vals)))
-           (delta (cdr (assoc 'delta vals)))
-           (atr (cdr (assoc 'atr vals)))
-           (pba (cdr (assoc 'pba vals)))
+           (kijun (string-trim (cdr (assoc 'kijun vals))))
+           (delta (string-trim (cdr (assoc 'delta vals))))
+           (atr (string-trim (cdr (assoc 'atr vals))))
+           (pba (string-trim (cdr (assoc 'pba vals))))
            (confirm (y-or-n-p (format "Create %s trade template for %s? " trade-type ticker))))
       (when confirm
         (let* ((is-options (or (string= trade-type "call") (string= trade-type "put")))
@@ -69,4 +69,4 @@
               (unless (bolp) (insert "\n"))
               (insert trade-text)
               (save-buffer)
-              (message "%s trade template created for %s" trade-type ticker)))))))))
+              (message "%s trade template created for %s" trade-type ticker))))))))
