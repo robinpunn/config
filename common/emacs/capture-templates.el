@@ -1,5 +1,67 @@
-;; Helper functions for trade context and manipulation
+;; Helper functions for trade movement between sections
+(defun my/find-ticker-heading-position (date-pos)
+  "Find the ** ticker heading position above the given date position."
+  (save-excursion
+    (goto-char date-pos)
+    (unless (re-search-backward "^\\*\\* \\(.*\\)$" nil t)
+      (error "Could not find ** ticker heading above current position"))
+    (line-beginning-position)))
 
+(defun my/cut-entire-ticker-section (ticker-pos)
+  "Cut the entire ticker section starting at ticker-pos. Returns the cut text."
+  (save-excursion
+    (goto-char ticker-pos)
+    ;; Find the end of this ticker section (next ** heading or next * section or end of file)
+    (let ((start-pos ticker-pos)
+          (end-pos (save-excursion
+                     (forward-line 1)
+                     (if (re-search-forward "^\\*\\* \\|^\\* " nil t)
+                         (line-beginning-position)
+                       (point-max)))))
+      ;; Cut the entire section
+      (goto-char start-pos)
+      (let ((ticker-text (buffer-substring start-pos end-pos)))
+        (delete-region start-pos end-pos)
+        ticker-text))))
+
+(defun my/find-section-in-trades (section-name)
+  "Find a section (* Watch, * Open) in trades.org and return position after the heading."
+  (goto-char (point-min))
+  (unless (re-search-forward (format "^\\* %s" section-name) nil t)
+    (error "Could not find * %s section in trades.org" section-name))
+  ;; Find where to insert - after the section heading but before next * section
+  (let ((section-start (line-end-position)))
+    (forward-line 1)
+    ;; Move to end of section content (before next * heading or end of file)
+    (if (re-search-forward "^\\* " nil t)
+        (line-beginning-position)
+      (point-max))))
+
+(defun my/paste-ticker-in-section (section-name ticker-text)
+  "Paste ticker section into the specified section in trades.org."
+  (let ((insert-pos (my/find-section-in-trades section-name)))
+    (goto-char insert-pos)
+    ;; Add newline if not at beginning of line or if there's content
+    (unless (and (bolp) (or (eobp) (looking-at "^\\*")))
+      (insert "\n"))
+    (insert ticker-text)
+    ;; Ensure there's a newline after our insertion
+    (unless (bolp) (insert "\n"))))
+
+;; Main movement function
+(defun my/move-trade-watch-to-open ()
+  "Move the current trade's ticker from Watch section to Open section in trades.org."
+  (interactive)
+  (save-excursion
+    (let* ((date-pos (my/find-current-trade-date-heading))
+           (ticker-pos (my/find-ticker-heading-position date-pos))
+           (ticker-text (my/cut-entire-ticker-section ticker-pos)))
+      ;; Paste into Open section
+      (my/paste-ticker-in-section "Open" ticker-text)
+      (save-buffer)
+      (message "Trade moved from Watch to Open"))))
+
+;; Helper functions for trade context and manipulation
 (defun my/find-current-trade-date-heading ()
   "Find and move to the *** date heading for the current trade. Returns the position."
   (save-excursion
