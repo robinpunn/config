@@ -1,83 +1,129 @@
-;; Helper functions for trade movement between sections
+;;; Trading Journal
+
+;; Custom Variables
+(defgroup my-trading nil
+  "Trading journal workflow customization."
+  :group 'convenience)
+
+(defcustom my-trading-trades-file "~/Documents/Practice/trades.org"
+  "Path to the trades.org file."
+  :type 'file
+  :group 'my-trading)
+
+(defcustom my-trading-calculations-file "~/Documents/Practice/calculations.org"
+  "Path to the calculations.org file."
+  :type 'file
+  :group 'my-trading)
+
+(defcustom my-trading-summary-file "~/Documents/Practice/summary.org"
+  "Path to the summary.org file."
+  :type 'file
+  :group 'my-trading)
+
+;; Generic Utility Functions
+(defun my/find-org-heading (level text &optional direction limit)
+  "Find an org heading of LEVEL with TEXT content.
+LEVEL should be 1 for *, 2 for **, 3 for ***, etc.
+DIRECTION can be 'backward or 'forward (default forward).
+LIMIT is the search boundary (nil for no limit).
+Returns the position of the heading or nil if not found."
+  (let* ((stars (format "\\*\\{%d\\}" level))           ; exact count of stars
+         (name-part (if text (regexp-quote text) "\\(.*\\)"))
+         (pattern (format "^%s %s" stars name-part))
+         (search-func (if (eq direction 'backward) 're-search-backward 're-search-forward)))
+    (save-excursion
+      (when (funcall search-func pattern limit t)
+        (line-beginning-position)))))
+
+(defun my/get-org-heading-content (level &optional direction)
+  "Get the content text of an org heading at LEVEL.
+DIRECTION can be 'backward or 'forward (default backward for context)."
+  (let* ((stars (format "\\*\\{%d\\}" level))
+         (pattern (format "^%s \\(.*\\)$" stars))
+         (search-func (if (eq direction 'forward) 're-search-forward 're-search-backward)))
+    (save-excursion
+      (when (funcall search-func pattern nil t)
+        (string-trim (match-string 1))))))
+
+(defmacro my/with-trading-file (file-var &rest body)
+  "Execute BODY with FILE-VAR buffer current, saving afterwards."
+  `(with-current-buffer (find-file-noselect ,file-var)
+     (prog1 (progn ,@body)
+       (save-buffer))))
+
+(defun my/goto-heading-end (level)
+  "Move point to the end of current heading section at LEVEL.
+Returns the end position."
+  (save-excursion
+    (forward-line 1)
+    (let ((next-heading-pattern (format "^\\*\\{1,%d\\} " level)))
+      (if (re-search-forward next-heading-pattern nil t)
+          (line-beginning-position)
+        (point-max)))))
+
+;; Property Drawer Utilities
+(defun my/property-drawer-exists-p ()
+  "Check if a property drawer exists at current heading."
+  (save-excursion
+    (forward-line 1)
+    (looking-at "^:PROPERTIES:")))
+
+(defun my/read-property-value (property)
+  "Read the value of PROPERTY from current heading's property drawer."
+  (save-excursion
+    (when (re-search-forward (format "^:%s: +\\(.*\\)$" (upcase property)) nil t)
+      (string-trim (match-string 1)))))
+
+(defun my/write-property-drawer (properties)
+  "Write a property drawer with PROPERTIES alist at current heading.
+PROPERTIES should be an alist of (property . value) pairs."
+  (save-excursion
+    (end-of-line)
+    (insert "\n:PROPERTIES:")
+    (dolist (prop properties)
+      (insert (format "\n:%-10s %s" (upcase (car prop)) (cdr prop))))
+    (insert "\n:END:")))
+
+;; Data Processing Utilities
+(defun my/clean-table-value (value)
+  "Clean a table value by trimming and removing quotes."
+  (when value
+    (string-trim (replace-regexp-in-string "\"" "" value))))
+
+(defun my/parse-trade-type (type-value)
+  "Parse trade type value and return standardized type info.
+Returns (trade-category . original-type)."
+  (let ((clean-type (my/clean-table-value type-value)))
+    (cons (if (member clean-type '("call" "put")) "options" "stock")
+          clean-type)))
+
+(defun my/extract-trade-data ()
+  "Extract key trade data from current heading context.
+Returns an alist with ticker, type info, and position."
+  (let* ((date-pos (my/find-current-trade-date-heading))
+         (ticker (save-excursion
+                  (goto-char date-pos)
+                  (my/get-org-heading-content 2 'backward)))
+         (type-info (my/find-and-extract-type-line date-pos)))
+    `((date-pos . ,date-pos)
+      (ticker . ,ticker)
+      (type-value . ,(car type-info))
+      (type-pos . ,(cdr type-info))
+      (type-info . ,(my/parse-trade-type (car type-info))))))
+
+;; Refactored Specific Functions
+(defun my/find-current-trade-date-heading ()
+  "Find the *** date heading for the current trade and return its position."
+  (or (when (looking-at "^\\*\\*\\* ") (point))
+      (my/find-org-heading 3 nil 'backward)
+      (error "Not in a trade entry (no *** date heading found)")))
+
 (defun my/find-ticker-heading-position (date-pos)
   "Find the ** ticker heading position above the given date position."
   (save-excursion
     (goto-char date-pos)
-    (unless (re-search-backward "^\\*\\* \\(.*\\)$" nil t)
-      (error "Could not find ** ticker heading above current position"))
-    (line-beginning-position)))
-
-(defun my/cut-entire-ticker-section (ticker-pos)
-  "Cut the entire ticker section starting at ticker-pos. Returns the cut text."
-  (save-excursion
-    (goto-char ticker-pos)
-    ;; Find the end of this ticker section (next ** heading or next * section or end of file)
-    (let ((start-pos ticker-pos)
-          (end-pos (save-excursion
-                     (forward-line 1)
-                     (if (re-search-forward "^\\*\\* \\|^\\* " nil t)
-                         (line-beginning-position)
-                       (point-max)))))
-      ;; Cut the entire section
-      (goto-char start-pos)
-      (let ((ticker-text (buffer-substring start-pos end-pos)))
-        (delete-region start-pos end-pos)
-        ticker-text))))
-
-(defun my/find-section-in-trades (section-name)
-  "Find a section (* Watch, * Open) in trades.org and return position after the heading."
-  (goto-char (point-min))
-  (unless (re-search-forward (format "^\\* %s" section-name) nil t)
-    (error "Could not find * %s section in trades.org" section-name))
-  ;; Find where to insert - after the section heading but before next * section
-  (let ((section-start (line-end-position)))
-    (forward-line 1)
-    ;; Move to end of section content (before next * heading or end of file)
-    (if (re-search-forward "^\\* " nil t)
-        (line-beginning-position)
-      (point-max))))
-
-(defun my/paste-ticker-in-section (section-name ticker-text)
-  "Paste ticker section into the specified section in trades.org."
-  (let ((insert-pos (my/find-section-in-trades section-name)))
-    (goto-char insert-pos)
-    ;; Add newline if not at beginning of line or if there's content
-    (unless (and (bolp) (or (eobp) (looking-at "^\\*")))
-      (insert "\n"))
-    (insert ticker-text)
-    ;; Ensure there's a newline after our insertion
-    (unless (bolp) (insert "\n"))))
-
-;; Main movement function
-(defun my/move-trade-watch-to-open ()
-  "Move the current trade's ticker from Watch section to Open section in trades.org."
-  (interactive)
-  (save-excursion
-    (let* ((date-pos (my/find-current-trade-date-heading))
-           (ticker-pos (my/find-ticker-heading-position date-pos))
-           (ticker-text (my/cut-entire-ticker-section ticker-pos)))
-      ;; Paste into Open section
-      (my/paste-ticker-in-section "Open" ticker-text)
-      (save-buffer)
-      (message "Trade moved from Watch to Open"))))
-
-;; Helper functions for trade context and manipulation
-(defun my/find-current-trade-date-heading ()
-  "Find and move to the *** date heading for the current trade. Returns the position."
-  (save-excursion
-    (beginning-of-line)
-    (unless (or (looking-at "^\\*\\*\\* ")
-                (re-search-backward "^\\*\\*\\* " nil t))
-      (error "Not in a trade entry (no *** date heading found)"))
-    (point)))
-
-(defun my/find-symbol-above-date (date-pos)
-  "Find the ** symbol heading above the given date position. Returns the symbol string."
-  (save-excursion
-    (goto-char date-pos)
-    (unless (re-search-backward "^\\*\\* \\(.*\\)$" nil t)
-      (error "Could not find ** symbol heading above current position"))
-    (string-trim (match-string 1))))
+    (or (my/find-org-heading 2 nil 'backward)
+        (error "Could not find ** ticker heading above current position"))))
 
 (defun my/find-and-extract-type-line (date-pos)
   "Find the '- type:' line after the date heading. Returns (type-value . type-line-pos)."
@@ -85,15 +131,14 @@
     (goto-char date-pos)
     (forward-line 1)
     (let ((search-limit (save-excursion
-                          (if (re-search-forward "^\\*\\*\\*\\*" nil t)
+			  (if (re-search-forward "^\\*\\*\\*\\*" nil t)
                               (line-beginning-position)
                             (point-max))))
           (type-value nil)
           (type-line-pos nil))
       
       ;; Search for "- type: " line
-      (while (and (< (point) search-limit)
-                  (not type-value))
+      (while (and (< (point) search-limit) (not type-value))
         (when (looking-at "^ *- type: \\(.*\\)$")
           (setq type-value (string-trim (match-string 1)))
           (setq type-line-pos (point)))
@@ -104,20 +149,47 @@
       
       (cons type-value type-line-pos))))
 
+(defun my/cut-entire-ticker-section (ticker-pos)
+  "Cut the entire ticker section starting at ticker-pos. Returns the cut text."
+  (save-excursion
+    (goto-char ticker-pos)
+    (let* ((start-pos ticker-pos)
+           (end-pos (my/goto-heading-end 2))
+           (ticker-text (buffer-substring start-pos end-pos)))
+      (delete-region start-pos end-pos)
+      ticker-text)))
+
+(defun my/find-section-in-trades (section-name)
+  "Find a section (* Watch, * Open) in trades.org and return position just after the heading."
+  (my/with-trading-file my-trading-trades-file
+    (goto-char (point-min))
+    (let ((pos (my/find-org-heading 1 section-name)))
+      (unless pos
+        (error "Could not find * %s section in trades.org" section-name))
+      (goto-char pos)
+      (forward-line 1)
+      (point))))
+
+(defun my/paste-ticker-in-section (section-name ticker-text)
+  "Paste ticker section into the specified section in trades.org as the first underlying."
+  (my/with-trading-file my-trading-trades-file
+    (let ((insert-pos (my/find-section-in-trades section-name)))
+      (goto-char insert-pos)
+      (unless (or (bolp) (looking-at "^\\s-*$"))
+        (insert "\n"))
+      (insert ticker-text)
+      (unless (bolp) (insert "\n")))))
+
 (defun my/create-property-drawer-at-date (date-pos trade-id type-value direction)
   "Create a property drawer after the date heading at the given position."
-  (let ((trade-type (if (or (string= type-value "call") (string= type-value "put"))
-                        "options"
-                      "stock")))
+  (let* ((type-info (my/parse-trade-type type-value))
+         (properties `(("TRADE_ID" . ,trade-id)
+                      ("TYPE" . ,(car type-info))
+                      ("DIRECTION" . ,direction)
+                      ("STATUS" . "open"))))
     (save-excursion
       (goto-char date-pos)
-      (end-of-line)
-      (insert "\n:PROPERTIES:")
-      (insert (format "\n:TRADE_ID: %s" trade-id))
-      (insert (format "\n:TYPE:     %s" trade-type))
-      (insert (format "\n:DIRECTION: %s" direction))
-      (insert "\n:STATUS:   open")
-      (insert "\n:END:"))))
+      (my/write-property-drawer properties))))
 
 (defun my/remove-type-line (type-line-pos)
   "Remove the type line at the given position."
@@ -126,76 +198,119 @@
     (beginning-of-line)
     (kill-line 1)))
 
-(defun my/check-for-existing-property-drawer (date-pos)
-  "Check if a property drawer already exists after the date heading. Returns t if exists."
-  (save-excursion
-    (goto-char date-pos)
-    (forward-line 1)
-    (looking-at "^:PROPERTIES:")))
+(defun my/find-or-create-ticker-heading (ticker)
+  "Find or create a ** ticker heading in trades.org under Watch section.
+Returns position after the heading."
+  (my/with-trading-file my-trading-trades-file
+    (goto-char (point-min))
+    (let ((watch-pos (my/find-org-heading 1 "Watch")))
+      (unless watch-pos
+        (error "Could not find * Watch section"))
+      
+      ;; Look for existing ticker heading
+      (goto-char watch-pos)
+      (let ((ticker-pos (my/find-org-heading 2 ticker 'forward 
+                                            (my/goto-heading-end 1))))
+        (if ticker-pos
+            (progn (goto-char ticker-pos) (forward-line 1) (point))
+          ;; Create new ticker heading
+          (goto-char watch-pos)
+          (forward-line 1)
+          (insert (format "** %s\n" ticker))
+          (point))))))
 
-;; Main interactive functions
-
-(defun my/create-trade-id ()
-  "Create a tradeID and property drawer for the current trade entry."
-  (interactive)
-  (let* ((date-pos (my/find-current-trade-date-heading))
-         (symbol (my/find-symbol-above-date date-pos))
-         (type-info (my/find-and-extract-type-line date-pos))
-         (type-value (car type-info))
-         (type-line-pos (cdr type-info))
-         (timestamp (format-time-string "%y%m%d-%H%M"))
-         (trade-id (format "%s-%s" symbol timestamp)))
-    
-    ;; Check for existing property drawer
-    (when (my/check-for-existing-property-drawer date-pos)
-      (unless (y-or-n-p "Property drawer already exists. Overwrite? ")
-        (error "Aborted - property drawer already exists")))
-    
-    ;; Remove the type line first (to avoid position shifting)
-    (my/remove-type-line type-line-pos)
-    
-    ;; Create the property drawer
-    (my/create-property-drawer-at-date date-pos trade-id type-value type-value)
-    
-    (message "Trade ID created: %s" trade-id)))
-
-;; Helper functions for calculations -> trades workflow
+;; Calculations Data Extraction 
+(defun my/extract-values-from-current-calculations-row ()
+  "Extract needed values from the current row in calculations.org table."
+  (list
+   (cons 'ticker (org-table-get-field 1))
+   (cons 'type (org-table-get-field 2))
+   (cons 'kijun (org-table-get-field 4))
+   (cons 'delta (org-table-get-field 13))
+   (cons 'atr (org-table-get-field 5))
+   (cons 'pba (org-table-get-field 6))))
 
 (defun my/extract-and-clean-calculations-data ()
   "Extract and clean values from the current calculations table row."
   (let ((vals (my/extract-values-from-current-calculations-row)))
-    (list
-     (cons 'ticker (cdr (assoc 'ticker vals)))
-     (cons 'trade-type (string-trim 
-                        (replace-regexp-in-string "\"" "" 
-                                                 (cdr (assoc 'type vals)))))
-     (cons 'kijun (string-trim (cdr (assoc 'kijun vals))))
-     (cons 'delta (string-trim (cdr (assoc 'delta vals))))
-     (cons 'atr (string-trim (cdr (assoc 'atr vals))))
-     (cons 'pba (string-trim (cdr (assoc 'pba vals)))))))
+    (mapcar (lambda (pair)
+              (cons (car pair) (my/clean-table-value (cdr pair))))
+            `((ticker . ,(cdr (assoc 'ticker vals)))
+              (trade-type . ,(cdr (assoc 'type vals)))
+              (kijun . ,(cdr (assoc 'kijun vals)))
+              (delta . ,(cdr (assoc 'delta vals)))
+              (atr . ,(cdr (assoc 'atr vals)))
+              (pba . ,(cdr (assoc 'pba vals)))))))
 
+;; Template Generation
 (defun my/generate-trade-template (trade-type kijun pba atr delta)
   "Generate the trade template text based on trade type and indicators."
-  (let ((is-options (or (string= trade-type "call") (string= trade-type "put")))
-        (date-str (format-time-string "%m/%d/%y")))
-    (if is-options
-        (format
-         "*** %s\n - type: %s\n**** opening indicators\n***** daily\n - kijun\n   - value: %s\n   - direction:\n - pbar: %s\n - stoch:\n   - %%k:\n   - %%d:\n - cmf:\n   - value:\n   - direction:\n - rsi:\n   - value:\n   - direction:\n - atr: %s\n - hv:\n\n***** chain\n - delta: %s\n - gamma:\n - vega:\n - theta:\n - ivr:\n - ivx:\n\n**** open\n***** fill\n - date:\n - strike:\n - exp:\n - quantity:\n - price:\n**** close\n***** take profit 1\n - date:\n - strike:\n - exp:\n - quantity:\n - price:\n***** trade close\n - date:\n - strike:\n - exp:\n - quantity\n - price:\n\n**** lessons\n"
-         date-str trade-type kijun pba atr delta)
-      (format
-       "*** %s\n - type: %s\n**** opening indicators\n***** daily\n - kijun\n   - value: %s\n   - direction:\n - pbar: %s\n - stoch:\n   - %%k:\n   - %%d:\n - cmf:\n   - value:\n   - direction:\n - rsi:\n   - value:\n   - direction:\n - atr: %s\n - hv:\n\n**** open\n***** fill\n - date:\n - quantity:\n - price:\n**** close\n***** take profit 1\n - date:\n - quantity:\n - price:\n***** trade close\n - date:\n - quantity\n - price:\n\n**** lessons\n"
-       date-str trade-type kijun pba atr))))
+  (let* ((type-info (my/parse-trade-type trade-type))
+         (is-options (string= (car type-info) "options"))
+         (date-str (format-time-string "%m/%d/%y"))
+         (base-template 
+          (format "*** %s\n - type: %s\n**** opening indicators\n***** daily\n - kijun\n   - value: %s\n   - direction:\n - pbar: %s\n - stoch:\n   - %%k:\n   - %%d:\n - cmf:\n   - value:\n   - direction:\n - rsi:\n   - value:\n   - direction:\n - atr: %s\n - hv:\n\n"
+                  date-str trade-type kijun pba atr)))
+    (concat base-template
+            (if is-options
+                (format "***** chain\n - delta: %s\n - gamma:\n - vega:\n - theta:\n - ivr:\n - ivx:\n\n**** open\n - date:\n - strike:\n - exp:\n - quantity:\n - price:\n**** close\n***** take profit 1\n - date:\n - strike:\n - exp:\n - quantity:\n - price:\n***** trade close\n - date:\n - strike:\n - exp:\n - quantity\n - price:\n\n**** lessons\n" delta)
+              "**** open\n - date:\n - quantity:\n - price:\n**** close\n***** take profit 1\n - date:\n - quantity:\n - price:\n***** trade close\n - date:\n - quantity\n - price:\n\n**** lessons\n"))))
 
 (defun my/insert-trade-template-in-trades-file (ticker trade-text)
   "Insert the trade template in the trades.org file under the appropriate ticker."
-  (with-current-buffer (find-file-noselect "~/Documents/Practice/trades.org")
+  (my/with-trading-file my-trading-trades-file
     (let ((pos (my/find-or-create-ticker-heading ticker)))
       (goto-char pos)
       (unless (bolp) (insert "\n"))
-      (insert trade-text)
-      (save-buffer))))
+      (insert trade-text))))
 
-;; Refactored main function
+;; Main Interactive Functions 
+(defun my/move-trade-watch-to-open ()
+  "Move the current trade's ticker from Watch section to Open section in trades.org."
+  (let* ((date-pos (my/find-current-trade-date-heading))
+         (ticker-pos (my/find-ticker-heading-position date-pos))
+         (ticker-text (my/cut-entire-ticker-section ticker-pos)))
+    (my/paste-ticker-in-section "Open" ticker-text)
+    (message "Trade moved from Watch to Open")))
+
+(defun trade-property-drawer (date-pos type-line-pos trade-id direction init-price)
+  "Write a property drawer at DATE-POS with TRADE-ID, DIRECTION and INIT-PRICE.
+TYPE is derived from DIRECTION: call/put -> \"options\", otherwise -> \"stock\".
+TYPE-LINE-POS (if non-nil) is removed before writing the drawer."
+  (let* ((dir (when direction (downcase (string-trim direction))))
+         (trade-type (if (member dir '("call" "put")) "options" "stock"))
+         (properties `(("TRADE_ID" . ,trade-id)
+                       ("TYPE"     . ,trade-type)
+                       ("DIRECTION". ,dir)
+                       ("INIT"     . ,init-price)
+                       ("STATUS"   . "open"))))
+    ;; Remove original "- type:" line first (if provided)
+    (when type-line-pos
+      (my/remove-type-line type-line-pos))
+    ;; Write the property drawer at the date heading
+    (save-excursion
+      (goto-char date-pos)
+      (my/write-property-drawer properties))
+    (message "Trade property drawer created: %s (TYPE=%s DIRECTION=%s INIT=%s)"
+             trade-id trade-type dir init-price)))
+
+(defun my/orchestrate-trade ()
+  "Orchestrator (open trade): prompt for INIT, generate trade-id, and write the property drawer.
+Call this while inside the trade's *** date heading."
+  "Step 1: Prompt for INIT and create the property drawer."
+  (interactive)
+  (let* ((trade-data (my/extract-trade-data))
+         (date-pos (cdr (assoc 'date-pos trade-data)))
+         (type-line-pos (cdr (assoc 'type-pos trade-data)))
+         (ticker (cdr (assoc 'ticker trade-data)))
+         (type-value (cdr (assoc 'type-value trade-data))) ;; e.g. \"call\" or \"long\"
+         (direction (and type-value (downcase (string-trim type-value))))
+         (init-price (read-string "Enter initial price of underlying (INIT): "))
+         (timestamp (format-time-string "%y%m%d"))
+         (trade-id (format "%s-%s" ticker timestamp)))
+  (trade-property-drawer date-pos type-line-pos trade-id direction init-price)
+  "Step 2: Move trade from Watch → Open."
+  (my/move-trade-watch-to-open)))
 
 (defun my/insert-prep-trade ()
   "Insert a prepared trade using values extracted from the current table row in calculations.org."
@@ -214,3 +329,5 @@
         (let ((trade-text (my/generate-trade-template trade-type kijun pba atr delta)))
           (my/insert-trade-template-in-trades-file ticker trade-text)
           (message "%s trade template created for %s" trade-type ticker))))))
+
+(provide 'my-trading-workflow)
