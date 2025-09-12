@@ -111,13 +111,6 @@ Returns an alist with ticker, type info, and position."
       (type-pos . ,(cdr type-info))
       (type-info . ,(my/parse-trade-type (car type-info))))))
 
-;; Refactored Specific Functions
-(defun my/find-current-trade-date-heading ()
-  "Find the *** date heading for the current trade and return its position."
-  (or (when (looking-at "^\\*\\*\\* ") (point))
-      (my/find-org-heading 3 nil 'backward)
-      (error "Not in a trade entry (no *** date heading found)")))
-
 (defun my/find-ticker-heading-position (date-pos)
   "Find the ** ticker heading position above the given date position."
   (save-excursion
@@ -249,12 +242,12 @@ Returns position after the heading."
          (is-options (string= (car type-info) "options"))
          (date-str (format-time-string "%m/%d/%y"))
          (base-template 
-          (format "*** %s\n - type: %s\n**** opening indicators\n***** daily\n - kijun\n   - value: %s\n   - direction:\n - pbar: %s\n - stoch:\n   - %%k:\n   - %%d:\n - cmf:\n   - value:\n   - direction:\n - rsi:\n   - value:\n   - direction:\n - atr: %s\n - hv:\n\n"
+          (format "*** %s\n- type: %s\n**** opening indicators\n***** daily\n- kijun\n - value: %s\n - direction:\n- pbar: %s\n- stoch:\n - %%k:\n - %%d:\n- cmf:\n - value:\n - direction:\n- rsi:\n - value:\n - direction:\n- atr: %s\n- hv:\n\n"
                   date-str trade-type kijun pba atr)))
     (concat base-template
             (if is-options
-                (format "***** chain\n - delta: %s\n - gamma:\n - vega:\n - theta:\n - ivr:\n - ivx:\n\n**** open\n - date:\n - strike:\n - exp:\n - quantity:\n - price:\n**** close\n***** take profit 1\n - date:\n - strike:\n - exp:\n - quantity:\n - price:\n***** trade close\n - date:\n - strike:\n - exp:\n - quantity\n - price:\n\n**** lessons\n" delta)
-              "**** open\n - date:\n - quantity:\n - price:\n**** close\n***** take profit 1\n - date:\n - quantity:\n - price:\n***** trade close\n - date:\n - quantity\n - price:\n\n**** lessons\n"))))
+                (format "***** chain\n- delta: %s\n- gamma:\n- vega:\n- theta:\n- ivr:\n- ivx:\n\n**** fill\n- date:\n- strike:\n- exp:\n- quantity:\n- price:\n**** close\n***** take profit 1\n- date:\n- strike:\n- exp:\n- quantity:\n- price:\n***** trade close\n- date:\n- strike:\n- exp:\n- quantity\n- price:\n\n**** lessons\n" delta)
+              "**** fill\n- date:\n- quantity:\n- price:\n**** close\n***** take profit 1\n- date:\n- quantity:\n- price:\n***** trade close\n- date:\n- quantity\n- price:\n\n**** lessons\n"))))
 
 (defun my/insert-trade-template-in-trades-file (ticker trade-text)
   "Insert the trade template in the trades.org file under the appropriate ticker."
@@ -264,7 +257,7 @@ Returns position after the heading."
       (unless (bolp) (insert "\n"))
       (insert trade-text))))
 
-;; Main Interactive Functions 
+;; Create trade
 (defun my/move-trade-watch-to-open ()
   "Move the current trade's ticker from Watch section to Open section in trades.org."
   (let* ((date-pos (my/find-current-trade-date-heading))
@@ -273,12 +266,11 @@ Returns position after the heading."
     (my/paste-ticker-in-section "Open" ticker-text)
     (message "Trade moved from Watch to Open")))
 
-(defun trade-property-drawer (date-pos type-line-pos trade-id direction init-price)
+(defun trade-property-drawer (date-pos type-line-pos trade-id direction init-price trade-type)
   "Write a property drawer at DATE-POS with TRADE-ID, DIRECTION and INIT-PRICE.
 TYPE is derived from DIRECTION: call/put -> \"options\", otherwise -> \"stock\".
 TYPE-LINE-POS (if non-nil) is removed before writing the drawer."
-  (let* ((dir (when direction (downcase (string-trim direction))))
-         (trade-type (if (member dir '("call" "put")) "options" "stock"))
+  (let* ((dir (when direction (downcase (string-trim direction)))) 
          (properties `(("TRADE_ID" . ,trade-id)
                        ("TYPE"     . ,trade-type)
                        ("DIRECTION". ,dir)
@@ -294,24 +286,99 @@ TYPE-LINE-POS (if non-nil) is removed before writing the drawer."
     (message "Trade property drawer created: %s (TYPE=%s DIRECTION=%s INIT=%s)"
              trade-id trade-type dir init-price)))
 
-(defun my/orchestrate-trade ()
-  "Orchestrator (open trade): prompt for INIT, generate trade-id, and write the property drawer.
-Call this while inside the trade's *** date heading."
-  "Step 1: Prompt for INIT and create the property drawer."
-  (interactive)
-  (let* ((trade-data (my/extract-trade-data))
-         (date-pos (cdr (assoc 'date-pos trade-data)))
-         (type-line-pos (cdr (assoc 'type-pos trade-data)))
-         (ticker (cdr (assoc 'ticker trade-data)))
-         (type-value (cdr (assoc 'type-value trade-data))) ;; e.g. \"call\" or \"long\"
-         (direction (and type-value (downcase (string-trim type-value))))
-         (init-price (read-string "Enter initial price of underlying (INIT): "))
-         (timestamp (format-time-string "%y%m%d"))
-         (trade-id (format "%s-%s" ticker timestamp)))
-  (trade-property-drawer date-pos type-line-pos trade-id direction init-price)
-  "Step 2: Move trade from Watch → Open."
-  (my/move-trade-watch-to-open)))
+;; Trade Fill
+(defun my/find-current-trade-date-heading ()
+  "Return the position of the current trade's *** date heading.
+If point is already on a *** date heading, returns that position.
+Otherwise searches backward for the nearest *** heading."
+  (or (when (looking-at "^\\*\\*\\* ")
+        (point))
+      (let ((pos (save-excursion
+                   (re-search-backward "^\\*\\*\\* " nil t))))
+        (if pos
+            pos
+          (error "Not inside a trade entry (no *** date heading found)")))))
 
+(defun my/find-fill-section ()
+  "Return the position of the **** fill heading in the current trade.
+Assumes point is anywhere inside the trade.
+Errors if no **** fill section is found."
+  (let ((date-pos (my/find-current-trade-date-heading))
+        fill-pos)
+    (save-excursion
+      (goto-char date-pos)
+      ;; search forward for **** fill in the trade subtree
+      (when (re-search-forward "^\\*\\*\\*\\* fill" nil t)
+        (setq fill-pos (line-beginning-position))))
+    (unless fill-pos
+      (error "Could not find **** fill section in current trade"))
+    fill-pos))
+
+(defun my/extract-trade-date ()
+  "Return the date string from the current trade's *** date heading.
+Assumes point is anywhere inside the trade."
+  (save-excursion
+    (goto-char (my/find-current-trade-date-heading))
+    (let ((line (thing-at-point 'line t)))
+      ;; Extract everything after the stars and space
+      (if (string-match "^\\*\\*\\* \\(.*\\)$" line)
+          (string-trim (match-string 1 line))
+        (error "Could not extract date from heading")))))
+
+(defun my/update-fill-field (field-name value)
+  "Update FIELD-NAME in the **** fill section of the current trade with VALUE.
+Assumes point is anywhere inside the trade.
+FIELD-NAME should be the string without the leading dash, e.g., \"date\" or \"price\"."
+  (let ((fill-pos (my/find-fill-section))
+        field-regex)
+    (save-excursion
+      (goto-char fill-pos)
+      (setq field-regex (format "^\\- %s:\\(.*\\)$" (regexp-quote field-name)))
+      (if (re-search-forward field-regex (my/goto-heading-end 4) t)
+          (replace-match (format "- %s: %s" field-name value) t t)
+        (error "Could not find field '%s' in fill section" field-name)))))
+
+(defun my/prompt-stock-fill-data ()
+  "Prompt user for stock fill details (quantity, price) and return as an alist.
+Automatically includes the trade date."
+  (let* ((date (my/extract-trade-date))
+         (quantity (read-string "Quantity: "))
+         (price (read-string "Price: ")))
+    `((date . ,date)
+      (quantity . ,quantity)
+      (price . ,price))))
+
+(defun my/prompt-options-fill-data ()
+  "Prompt user for options fill details (strike, exp, quantity, price).
+Automatically includes the trade date. Returns an alist."
+  (let* ((date (my/extract-trade-date))
+         (strike (read-string "Strike: "))
+         (exp (read-string "Expiration: "))
+         (quantity (read-string "Quantity: "))
+         (price (read-string "Price: ")))
+    `((date . ,date)
+      (strike . ,strike)
+      (exp . ,exp)
+      (quantity . ,quantity)
+      (price . ,price))))
+
+(defun my/fill-stock-section (data)
+  "Fill the **** fill section of the current trade with stock DATA.
+DATA should be an alist from `my/prompt-stock-fill-data`."
+  (my/update-fill-field "date" (alist-get 'date data))
+  (my/update-fill-field "quantity" (alist-get 'quantity data))
+  (my/update-fill-field "price" (alist-get 'price data)))
+
+(defun my/fill-options-section (data)
+  "Fill the **** fill section of the current trade with options DATA.
+DATA should be an alist from `my/prompt-options-fill-data`."
+  (my/update-fill-field "date" (alist-get 'date data))
+  (my/update-fill-field "strike" (alist-get 'strike data))
+  (my/update-fill-field "exp" (alist-get 'exp data))
+  (my/update-fill-field "quantity" (alist-get 'quantity data))
+  (my/update-fill-field "price" (alist-get 'price data)))
+
+;; Main Interactive Functions 
 (defun my/insert-prep-trade ()
   "Insert a prepared trade using values extracted from the current table row in calculations.org."
   (interactive)
@@ -329,5 +396,32 @@ Call this while inside the trade's *** date heading."
         (let ((trade-text (my/generate-trade-template trade-type kijun pba atr delta)))
           (my/insert-trade-template-in-trades-file ticker trade-text)
           (message "%s trade template created for %s" trade-type ticker))))))
+
+(defun my/orchestrate-trade ()
+  "Orchestrator (open trade): prompt for INIT, generate trade-id, and write the property drawer.
+Call this while inside the trade's *** date heading."
+  "Step 1: Prompt for INIT and create the property drawer."
+  (interactive)
+  (let* ((trade-data (my/extract-trade-data))
+         (date-pos (cdr (assoc 'date-pos trade-data)))
+         (type-line-pos (cdr (assoc 'type-pos trade-data)))
+         (ticker (cdr (assoc 'ticker trade-data)))
+         (type-value (cdr (assoc 'type-value trade-data))) 
+         (direction (and type-value (downcase (string-trim type-value))))
+	 (trade-type (if (member direction '("call" "put")) "options" "stock"))
+         (init-price (read-string "Enter initial price of underlying (INIT): "))
+         (timestamp (format-time-string "%y%m%d"))
+         (trade-id (format "%s-%s" ticker timestamp)))
+  (trade-property-drawer date-pos type-line-pos trade-id direction init-price trade-type)
+  
+  "Step 2: Enter trade fill information."
+  (cond
+    ((string= trade-type "stock")
+     (my/fill-stock-section (my/prompt-stock-fill-data)))
+    ((string= trade-type "options")
+     (my/fill-options-section (my/prompt-options-fill-data))))
+
+  "Step 3: Move trade from Watch → Open."
+  (my/move-trade-watch-to-open)))
 
 (provide 'my-trading-workflow)
