@@ -81,7 +81,7 @@ PROPERTIES should be an alist of (property . value) pairs."
     (end-of-line)
     (insert "\n:PROPERTIES:")
     (dolist (prop properties)
-      (insert (format "\n:%-10s %s" (upcase (car prop)) (cdr prop))))
+      (insert (format "\n:%s: %s" (upcase (car prop)) (cdr prop))))
     (insert "\n:END:")))
 
 ;; Data Processing Utilities
@@ -377,6 +377,111 @@ DATA should be an alist from `my/prompt-options-fill-data`."
   (my/update-fill-field "exp" (alist-get 'exp data))
   (my/update-fill-field "quantity" (alist-get 'quantity data))
   (my/update-fill-field "price" (alist-get 'price data)))
+
+;; calculations.org population
+(defun my/parse-indented-list-for-extractor (section limit)
+  "Parse '- key: value' lines at point up to LIMIT, extracting one-level nested children.
+SECTION is the section name (e.g. \"daily\" or \"chain\").
+Return an alist of (keyword-symbol . value), with keys like :daily-kijun-value."
+  (let ((results '()))
+    (while (and (< (point) limit)
+                (looking-at "^[ \t]*- \\([^:]+\\):?\\(.*\\)"))
+      (let* ((raw-key (string-trim (match-string 1)))
+             (val (string-trim (match-string 2)))
+             (line-indent (current-indentation))
+             (clean-key (downcase (replace-regexp-in-string "[[:space:]]+" "-" raw-key)))
+             (prefix (downcase (replace-regexp-in-string "[[:space:]]+" "-" section)))
+             (sym (intern (concat ":" prefix "-" clean-key))))
+        (when (and val (not (string-empty-p val)))
+          (push (cons sym val) results))
+        (forward-line 1)
+        ;; parse children indented more than parent (one level)
+        (while (and (< (point) limit)
+                    (> (current-indentation) line-indent)
+                    (looking-at "^[ \t]*- \\([^:]+\\):?\\(.*\\)"))
+          (let* ((child-key (string-trim (match-string 1)))
+                 (child-val (string-trim (match-string 2)))
+                 (clean-child (downcase (replace-regexp-in-string "[[:space:]]+" "-" child-key)))
+                 (compound-sym (intern (concat ":" prefix "-" clean-key "-" clean-child))))
+            (when (and child-val (not (string-empty-p child-val)))
+              (push (cons compound-sym child-val) results)))
+          (forward-line 1))))
+    results))
+
+(defun my/clean-extracted-value (val)
+  "Strip text properties from VAL and convert numeric-looking strings to numbers."
+  (let ((plain (if (stringp val) (string-trim (substring-no-properties val)) val)))
+    (if (and (stringp plain)
+             (string-match-p "\\`[0-9.]+\\'" plain))
+        (string-to-number plain)
+      plain)))
+
+(defun my/extract-trade-data-clean (&optional date-pos)
+  "Extract all trade data for the trade rooted at DATE-POS (*** date heading).
+Returns a flat alist of keyword symbols to cleaned values (numbers or strings).
+Skips 'close' and 'lessons' sections."
+  (interactive)
+  (let* ((start-pos (or date-pos (my/find-current-trade-date-heading)))
+         (trade-end (save-excursion (goto-char start-pos) (my/goto-heading-end 3)))
+         (data '()))
+    (save-excursion
+      ;; 1) ticker
+      (let ((ticker-pos (my/find-ticker-heading-position start-pos)))
+        (when ticker-pos
+          (save-excursion
+            (goto-char ticker-pos)
+            (when (looking-at "^\\*\\* \\(.*\\)$")
+              (push (cons :ticker (my/clean-extracted-value (match-string 1))) data)))))
+
+      ;; 2) date
+      (push (cons :date (my/clean-extracted-value (my/extract-trade-date))) data)
+
+      ;; 3) properties
+      (goto-char start-pos)
+      (dolist (p (org-entry-properties nil 'standard))
+        (let ((k (intern (concat ":" (replace-regexp-in-string "[[:space:]]+" "-"
+                                                             (downcase (car p)))))))
+          (push (cons k (my/clean-extracted-value (cdr p))) data))))
+
+      ;; 4) sections
+      (goto-char start-pos)
+      (while (re-search-forward "^\\*\\*\\*\\* \\(.*\\)$" trade-end t)
+        (let* ((section (downcase (string-trim (match-string 1))))
+               (sec-beg (match-beginning 0))
+               (sec-end (save-excursion (goto-char sec-beg) (my/goto-heading-end 4))))
+          (unless (member section '("close" "lessons"))
+            (goto-char sec-beg)
+            (while (re-search-forward "^[ \t]*- " sec-end t)
+              (beginning-of-line)
+              (setq data
+                    (append (mapcar (lambda (cons)
+                                      (cons (car cons)
+                                            (my/clean-extracted-value (cdr cons))))
+                                    (my/parse-indented-list-for-extractor section sec-end))
+                            data))))))
+    ;; Return results
+    (setq data (nreverse data))
+    (when (called-interactively-p 'any)
+      (message "%S" data))
+    data))
+
+(defun my/get-trade-properties (&optional heading-pos)
+  "Return an alist of all properties from the Org property drawer at HEADING-POS.
+If HEADING-POS is nil, use the current heading."
+  (save-excursion
+    (when heading-pos
+      (goto-char heading-pos))
+    ;; Ensure we are at the beginning of a heading
+    (unless (org-at-heading-p)
+      (org-back-to-heading t))
+    ;; Get all properties from the drawer
+    (let ((props (org-entry-properties nil 'all))
+          (data '()))
+      (dolist (p props)
+        (let ((k (intern (concat ":" (replace-regexp-in-string "[[:space:]]+" "-"
+                                                             (downcase (car p)))))))
+          (push (cons k (cdr p)) data)))
+      (nreverse data))))
 
 ;; Main Interactive Functions 
 (defun my/insert-prep-trade ()
