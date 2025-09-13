@@ -10,8 +10,8 @@
   :type 'file
   :group 'my-trading)
 
-(defcustom my-trading-calculations-file "~/Documents/Practice/calculations.org"
-  "Path to the calculations.org file."
+(defcustom my-trading-calculations-file "~/Documents/Practice/calculate.org"
+  "Path to the calculate.org file."
   :type 'file
   :group 'my-trading)
 
@@ -104,11 +104,14 @@ Returns an alist with ticker, type info, and position."
          (ticker (save-excursion
                   (goto-char date-pos)
                   (my/get-org-heading-content 2 'backward)))
-         (type-info (my/find-and-extract-type-line date-pos)))
+         (type-info (my/find-and-extract-type-line date-pos))
+         (risk-info (my/find-and-extract-risk-line date-pos)))
     `((date-pos . ,date-pos)
       (ticker . ,ticker)
       (type-value . ,(car type-info))
+      (risk-value . ,(car risk-info))
       (type-pos . ,(cdr type-info))
+      (risk-pos . ,(cdr risk-info))
       (type-info . ,(my/parse-trade-type (car type-info))))))
 
 (defun my/find-ticker-heading-position (date-pos)
@@ -141,6 +144,30 @@ Returns an alist with ticker, type info, and position."
         (error "Could not find '- type: ' line in trade entry"))
       
       (cons type-value type-line-pos))))
+
+(defun my/find-and-extract-risk-line (date-pos)
+  "Find the '- type:' line after the date heading. Returns (risk-value . risk-line-pos)."
+  (save-excursion
+    (goto-char date-pos)
+    (forward-line 1)
+    (let ((search-limit (save-excursion
+			  (if (re-search-forward "^\\*\\*\\*\\*" nil t)
+                              (line-beginning-position)
+                            (point-max))))
+          (risk-value nil)
+          (risk-line-pos nil))
+      
+      ;; Search for "- risk: " line
+      (while (and (< (point) search-limit) (not risk-value))
+        (when (looking-at "^ *- risk: \\(.*\\)$")
+          (setq risk-value (string-trim (match-string 1)))
+          (setq risk-line-pos (point)))
+        (forward-line 1))
+      
+      (unless risk-value
+        (error "Could not find '- risk: ' line in trade entry"))
+      
+      (cons risk-value risk-line-pos))))
 
 (defun my/cut-entire-ticker-section (ticker-pos)
   "Cut the entire ticker section starting at ticker-pos. Returns the cut text."
@@ -189,7 +216,15 @@ Returns an alist with ticker, type info, and position."
   (save-excursion
     (goto-char type-line-pos)
     (beginning-of-line)
-    (kill-line 1)))
+    (kill-whole-line)))
+
+(defun my/remove-risk-line (risk-line-pos)
+  "Remove the risk line at the given position."
+  (save-excursion
+    (goto-char risk-line-pos)
+    (beginning-of-line)
+    (kill-whole-line)))
+
 
 (defun my/find-or-create-ticker-heading (ticker)
   "Find or create a ** ticker heading in trades.org under Watch section.
@@ -221,7 +256,8 @@ Returns position after the heading."
    (cons 'kijun (org-table-get-field 4))
    (cons 'delta (org-table-get-field 13))
    (cons 'atr (org-table-get-field 5))
-   (cons 'pba (org-table-get-field 6))))
+   (cons 'pba (org-table-get-field 6))
+   (cons 'risk (org-table-get-field 7))))
 
 (defun my/extract-and-clean-calculations-data ()
   "Extract and clean values from the current calculations table row."
@@ -233,17 +269,18 @@ Returns position after the heading."
               (kijun . ,(cdr (assoc 'kijun vals)))
               (delta . ,(cdr (assoc 'delta vals)))
               (atr . ,(cdr (assoc 'atr vals)))
-              (pba . ,(cdr (assoc 'pba vals)))))))
+              (pba . ,(cdr (assoc 'pba vals)))
+	      (risk . ,(cdr (assoc 'risk vals)))))))
 
 ;; Template Generation
-(defun my/generate-trade-template (trade-type kijun pba atr delta)
+(defun my/generate-trade-template (trade-type risk kijun pba atr delta)
   "Generate the trade template text based on trade type and indicators."
   (let* ((type-info (my/parse-trade-type trade-type))
          (is-options (string= (car type-info) "options"))
          (date-str (format-time-string "%m/%d/%y"))
          (base-template 
-          (format "*** %s\n- type: %s\n**** opening indicators\n***** daily\n- kijun-value: %s\n- kijun-direction:\n- pbar: %s\n- stoch-%%k:\n- stoch-%%d:\n- cmf-value:\n- cmf-direction:\n- rsi-value:\n- rsi-direction:\n- atr: %s\n- hv:\n\n"
-                  date-str trade-type kijun pba atr)))
+          (format "*** %s\n- type: %s\n- risk: %s\n**** opening indicators\n***** daily\n- kijun-value: %s\n- kijun-direction:\n- pbar: %s\n- stoch-%%k:\n- stoch-%%d:\n- cmf-value:\n- cmf-direction:\n- rsi-value:\n- rsi-direction:\n- atr: %s\n- hv:\n\n"
+                  date-str trade-type risk kijun pba atr)))
     (concat base-template
             (if is-options
                 (format "***** chain\n- delta: %s\n- gamma:\n- vega:\n- theta:\n- ivr:\n- ivx:\n\n**** fill\n- date:\n- strike:\n- exp:\n- quantity:\n- price:\n**** close\n***** take profit 1\n- date:\n- strike:\n- exp:\n- quantity:\n- price:\n***** trade close\n- date:\n- strike:\n- exp:\n- quantity\n- price:\n\n**** lessons\n" delta)
@@ -266,7 +303,7 @@ Returns position after the heading."
     (my/paste-ticker-in-section "Open" ticker-text)
     (message "Trade moved from Watch to Open")))
 
-(defun trade-property-drawer (date-pos type-line-pos trade-id direction init-price trade-type)
+(defun trade-property-drawer (date-pos type-line-pos risk-line-pos trade-id direction init-price trade-type risk)
   "Write a property drawer at DATE-POS with TRADE-ID, DIRECTION and INIT-PRICE.
 TYPE is derived from DIRECTION: call/put -> \"options\", otherwise -> \"stock\".
 TYPE-LINE-POS (if non-nil) is removed before writing the drawer."
@@ -275,10 +312,13 @@ TYPE-LINE-POS (if non-nil) is removed before writing the drawer."
                        ("TYPE"     . ,trade-type)
                        ("DIRECTION". ,dir)
                        ("INIT"     . ,init-price)
+		       ("RISK"     . ,(string-to-number risk))
                        ("STATUS"   . "open"))))
     ;; Remove original "- type:" line first (if provided)
     (when type-line-pos
       (my/remove-type-line type-line-pos))
+    (when risk-line-pos
+      (my/remove-risk-line risk-line-pos))
     ;; Write the property drawer at the date heading
     (save-excursion
       (goto-char date-pos)
@@ -518,10 +558,11 @@ If HEADING-POS is nil, use the current heading."
            (kijun (cdr (assoc 'kijun data)))
            (delta (cdr (assoc 'delta data)))
            (atr (cdr (assoc 'atr data)))
-           (pba (cdr (assoc 'pba data))))
+           (pba (cdr (assoc 'pba data)))
+	   (risk (cdr (assoc 'risk data))))
       
       (when (y-or-n-p (format "Create %s trade template for %s? " trade-type ticker))
-        (let ((trade-text (my/generate-trade-template trade-type kijun pba atr delta)))
+        (let ((trade-text (my/generate-trade-template trade-type risk kijun pba atr delta)))
           (my/insert-trade-template-in-trades-file ticker trade-text)
           (message "%s trade template created for %s" trade-type ticker))))))
 
@@ -533,14 +574,16 @@ Call this while inside the trade's *** date heading."
   (let* ((trade-data (my/extract-trade-data))
          (date-pos (cdr (assoc 'date-pos trade-data)))
          (type-line-pos (cdr (assoc 'type-pos trade-data)))
+	 (risk-line-pos (cdr (assoc 'risk-pos trade-data)))
          (ticker (cdr (assoc 'ticker trade-data)))
          (type-value (cdr (assoc 'type-value trade-data))) 
+	 (risk-value (cdr (assoc 'risk-value trade-data)))
          (direction (and type-value (downcase (string-trim type-value))))
 	 (trade-type (if (member direction '("call" "put")) "options" "stock"))
          (init-price (read-string "Enter initial price of underlying (INIT): "))
          (timestamp (format-time-string "%y%m%d"))
          (trade-id (format "%s-%s" ticker timestamp)))
-  (trade-property-drawer date-pos type-line-pos trade-id direction init-price trade-type)
+  (trade-property-drawer date-pos type-line-pos risk-line-pos trade-id direction init-price trade-type risk-value)
   
   "Step 2: Enter trade fill information."
   (cond
