@@ -242,7 +242,7 @@ Returns position after the heading."
          (is-options (string= (car type-info) "options"))
          (date-str (format-time-string "%m/%d/%y"))
          (base-template 
-          (format "*** %s\n- type: %s\n**** opening indicators\n***** daily\n- kijun\n - value: %s\n - direction:\n- pbar: %s\n- stoch:\n - %%k:\n - %%d:\n- cmf:\n - value:\n - direction:\n- rsi:\n - value:\n - direction:\n- atr: %s\n- hv:\n\n"
+          (format "*** %s\n- type: %s\n**** opening indicators\n***** daily\n- kijun-value: %s\n- kijun-direction:\n- pbar: %s\n- stoch-%%k:\n- stoch-%%d:\n- cmf-value:\n- cmf-direction:\n- rsi-value:\n- rsi-direction:\n- atr: %s\n- hv:\n\n"
                   date-str trade-type kijun pba atr)))
     (concat base-template
             (if is-options
@@ -379,34 +379,57 @@ DATA should be an alist from `my/prompt-options-fill-data`."
   (my/update-fill-field "price" (alist-get 'price data)))
 
 ;; calculations.org population
-(defun my/parse-indented-list-for-extractor (section limit)
-  "Parse '- key: value' lines at point up to LIMIT, extracting one-level nested children.
-SECTION is the section name (e.g. \"daily\" or \"chain\").
-Return an alist of (keyword-symbol . value), with keys like :daily-kijun-value."
+(defun my/parse-key-value-line ()
+  "Parse the current line of the form '- key: value' and return (key . value)."
+  (when (looking-at "^[ \t]*- \\([^:]+\\):?\\(.*\\)")
+    (let ((key (string-trim (match-string 1)))
+          (val (string-trim (match-string 2))))
+      (cons key val))))
+
+(defun my/make-keyword-symbol (key &optional parent)
+  "Convert KEY into a clean keyword symbol.  
+If PARENT is provided, the final key is 'parent-key-child-key'.  
+All spaces replaced with dashes and lowercase."
+  (let ((clean-key (downcase (replace-regexp-in-string "[[:space:]]+" "-" key))))
+    (if parent
+        (intern (concat ":" (downcase (replace-regexp-in-string "[[:space:]]+" "-" parent))
+                        "-" clean-key))
+      (intern (concat ":" clean-key)))))
+
+(defun my/parse-indented-children (parent-key parent-indent limit)
+  "Parse lines indented more than PARENT-INDENT up to LIMIT as children of PARENT-KEY."
+  (let ((children '()))
+    (while (and (< (point) limit)
+                (> (current-indentation) parent-indent)
+                (looking-at "^[ \t]*- \\([^:]+\\):?\\(.*\\)"))
+      (let* ((child (my/parse-key-value-line))
+             (key (car child))
+             (val (cdr child))
+             (sym (my/make-keyword-symbol key parent-key)))
+        (when val
+          (push (cons sym val) children)))
+      (forward-line 1))
+    (nreverse children)))
+
+(defun my/parse-indented-list-for-extractor (limit)
+  "Parse '- key: value' lines up to LIMIT, including one-level children.  
+Parent lines with empty values are skipped; children always get prefixed by parent."
   (let ((results '()))
     (while (and (< (point) limit)
                 (looking-at "^[ \t]*- \\([^:]+\\):?\\(.*\\)"))
-      (let* ((raw-key (string-trim (match-string 1)))
-             (val (string-trim (match-string 2)))
-             (line-indent (current-indentation))
-             (clean-key (downcase (replace-regexp-in-string "[[:space:]]+" "-" raw-key)))
-             (prefix (downcase (replace-regexp-in-string "[[:space:]]+" "-" section)))
-             (sym (intern (concat ":" prefix "-" clean-key))))
+      (let* ((line (my/parse-key-value-line))
+             (key (car line))
+             (val (cdr line))
+             (line-indent (current-indentation)))
+        ;; Push parent if it has a value
         (when (and val (not (string-empty-p val)))
-          (push (cons sym val) results))
+          (push (cons (my/make-keyword-symbol key) val) results))
         (forward-line 1)
-        ;; parse children indented more than parent (one level)
-        (while (and (< (point) limit)
-                    (> (current-indentation) line-indent)
-                    (looking-at "^[ \t]*- \\([^:]+\\):?\\(.*\\)"))
-          (let* ((child-key (string-trim (match-string 1)))
-                 (child-val (string-trim (match-string 2)))
-                 (clean-child (downcase (replace-regexp-in-string "[[:space:]]+" "-" child-key)))
-                 (compound-sym (intern (concat ":" prefix "-" clean-key "-" clean-child))))
-            (when (and child-val (not (string-empty-p child-val)))
-              (push (cons compound-sym child-val) results)))
-          (forward-line 1))))
-    results))
+        ;; Always append children lines with parent-key prefix
+        (setq results
+              (append results
+                      (my/parse-indented-children key line-indent limit)))))
+    (nreverse results)))
 
 (defun my/clean-extracted-value (val)
   "Strip text properties from VAL and convert numeric-looking strings to numbers."
@@ -457,7 +480,7 @@ Skips 'close' and 'lessons' sections."
                     (append (mapcar (lambda (cons)
                                       (cons (car cons)
                                             (my/clean-extracted-value (cdr cons))))
-                                    (my/parse-indented-list-for-extractor section sec-end))
+                                    (my/parse-indented-list-for-extractor sec-end))
                             data))))))
     ;; Return results
     (setq data (nreverse data))
