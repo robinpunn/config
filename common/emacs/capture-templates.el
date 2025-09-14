@@ -70,6 +70,7 @@ Returns the end position."
 
 (defun my/read-property-value (property)
   "Read the value of PROPERTY from current heading's property drawer."
+  "Need to be at heading for this to work"
   (save-excursion
     (when (re-search-forward (format "^:%s: +\\(.*\\)$" (upcase property)) nil t)
       (string-trim (match-string 1)))))
@@ -216,14 +217,14 @@ Returns an alist with ticker, type info, and position."
   (save-excursion
     (goto-char type-line-pos)
     (beginning-of-line)
-    (kill-whole-line)))
+    (kill-line 1)))
 
 (defun my/remove-risk-line (risk-line-pos)
   "Remove the risk line at the given position."
   (save-excursion
     (goto-char risk-line-pos)
     (beginning-of-line)
-    (kill-whole-line)))
+    (kill-line 1)))
 
 
 (defun my/find-or-create-ticker-heading (ticker)
@@ -315,11 +316,11 @@ TYPE-LINE-POS (if non-nil) is removed before writing the drawer."
 		       ("RISK"     . ,(string-to-number risk))
                        ("STATUS"   . "open"))))
     ;; Remove original "- type:" line first (if provided)
-    (when type-line-pos
-      (my/remove-type-line type-line-pos))
     (when risk-line-pos
       (my/remove-risk-line risk-line-pos))
-    ;; Write the property drawer at the date heading
+    (when type-line-pos
+      (my/remove-type-line type-line-pos))
+        ;; Write the property drawer at the date heading
     (save-excursion
       (goto-char date-pos)
       (my/write-property-drawer properties))
