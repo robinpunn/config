@@ -95,6 +95,28 @@ Signals an error if no table is found."
         (beginning-of-line)
         (point)))))
 
+(defun my/get-table-header ()
+  "Return the header row of the current org table as a list of strings."
+  (let ((table (org-table-to-lisp)))
+    (car table)))
+
+(defun my/normalize-table-header (header-row)
+  "Convert HEADER-ROW (a list of strings) into a list of keywords.
+Downcases, trims, and replaces non-alphanumerics with underscores."
+  (mapcar (lambda (col)
+            (let* ((name (downcase (string-trim col)))
+                   (name (replace-regexp-in-string "[^a-z0-9]+" "_" name)))
+              (intern (concat ":" name))))
+          header-row))
+
+(defun my/get-table-schema (heading-path file-name)
+  "Return a schema (list of keywords) from the header row of the
+table under HEADING-PATH in FILE-NAME."
+  (let ((buf (my/find-buffer-for-filename file-name)))
+    (with-current-buffer buf
+      (goto-char (my/find-table-in-section heading-path file-name))
+      (my/normalize-table-header (my/get-table-header)))))
+
 (defun my/get-table-end-position (section file)
   "Return the buffer position at the end of the first table in SECTION of FILE.
 The returned position is the first line **after** the table."
