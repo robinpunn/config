@@ -61,6 +61,54 @@ Returns the end position."
           (line-beginning-position)
         (point-max)))))
 
+(defun my/find-buffer-for-filename (file-name)
+  "Return the buffer visiting `file-name`.
+If it isn't already open, open it."
+  (or (find-buffer-visiting file-name)
+      (find-file-noselect file-name)))
+
+(defun my/goto-heading (heading-path file-name)
+  "Navigate to a heading specified by HEADING-PATH in calculate.org.
+HEADING-PATH is a string like \"Open/Options\". Signals an error if not found."
+  (let ((parts (split-string heading-path "/"))
+        (buf (my/find-buffer-for-filename file-name)))
+    (with-current-buffer buf
+      (goto-char (point-min))
+      (dolist (part parts)
+        (unless (re-search-forward
+                 (format org-complex-heading-regexp-format (regexp-quote part))
+                 nil t)
+          (error "Heading not found: %s" part)))
+      (point))))
+
+(defun my/find-table-in-section (heading-path file-name)
+  "Return buffer position of the first Org table inside the section HEADING-PATH in FILE-NAME.
+Signals an error if no table is found."
+  (let ((buf (my/find-buffer-for-filename file-name)))
+    (with-current-buffer buf
+      ;; Go to the heading
+      (my/goto-heading heading-path file-name)
+      ;; Search for the table in this subtree
+      (let ((end (save-excursion (org-end-of-subtree t))))
+        (unless (re-search-forward org-table-dataline-regexp end t)
+          (error "No table found in section: %s" heading-path))
+        (beginning-of-line)
+        (point)))))
+
+(defun my/get-table-end-position (section file)
+  "Return the buffer position at the end of the first table in SECTION of FILE.
+The returned position is the first line **after** the table."
+  (save-excursion
+    (my/with-trading-file file
+      (my/goto-heading section file)
+      (when (re-search-forward org-table-any-line-regexp nil t)
+        (beginning-of-line)
+        ;; Walk forward until we're past the last table line
+        (while (looking-at org-table-any-line-regexp)
+          (forward-line 1))
+        ;; Return position just after table
+        (point)))))
+
 ;; Property Drawer Utilities
 (defun my/property-drawer-exists-p ()
   "Check if a property drawer exists at current heading."
@@ -225,7 +273,6 @@ Returns an alist with ticker, type info, and position."
     (goto-char risk-line-pos)
     (beginning-of-line)
     (kill-line 1)))
-
 
 (defun my/find-or-create-ticker-heading (ticker)
   "Find or create a ** ticker heading in trades.org under Watch section.
