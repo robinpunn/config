@@ -81,6 +81,7 @@ HEADING-PATH is a string like \"Open/Options\". Signals an error if not found."
           (error "Heading not found: %s" part)))
       (point))))
 
+;; find Table 
 (defun my/find-table-in-section (heading-path file-name)
   "Return buffer position of the first Org table inside the section HEADING-PATH in FILE-NAME.
 Signals an error if no table is found."
@@ -130,6 +131,49 @@ The returned position is the first line **after** the table."
           (forward-line 1))
         ;; Return position just after table
         (point)))))
+
+;; Write to table 
+(defun my/build-open-stocks-row (data schema)
+  "Build a row for Open/Stocks table from DATA, respecting SCHEMA."
+  (mapcar (lambda (col)
+            (pcase col
+              (:id   (alist-get :trade_id data))
+              (:type (alist-get :direction data))
+              (:init (alist-get :init data))
+              (:atr  (alist-get :atr data))
+              (:risk (alist-get :risk data))
+              (_ "")))
+          schema))
+
+(defun my/format-cell (col val)
+  "Format VAL for table cell based on COL.
+Direction (:type) is always quoted, numbers are raw, nil is empty."
+  (cond
+   ((null val) "")                             ; blank
+   ((eq col :type) (format "\"%s\"" val))      ; direction quoted
+   ((numberp val) (number-to-string val))      ; numbers raw
+   ((stringp val) val)                         ; plain string
+   (t (format "%s" val))))                     ; fallback
+
+(defun my/write-row-to-table (row section file schema)
+  "Append ROW to the table under SECTION in FILE, formatting with SCHEMA."
+  (my/with-trading-file file
+    (goto-char (my/get-table-end-position section file))
+    (insert
+     (concat "|"
+             (mapconcat (lambda (pair)
+                          (my/format-cell (car pair) (cdr pair)))
+                        (cl-mapcar #'cons schema row)
+                        "|")
+             "|\n"))
+    (org-table-align)))
+
+(defun my/write-open-stocks (data &optional file-name)
+  "Append DATA as a new row to the Open/Stocks table."
+  (let* ((file (or file-name my-trading-calculations-file))
+         (schema (my/get-table-schema "Open/Stocks" file))
+         (row (my/build-open-stocks-row data schema)))
+    (my/write-row-to-table row "Open/Stocks" file schema)))
 
 ;; Property Drawer Utilities
 (defun my/property-drawer-exists-p ()
@@ -549,6 +593,25 @@ Parent lines with empty values are skipped; children always get prefixed by pare
         (string-to-number plain)
       plain)))
 
+(defun my/get-trade-properties (&optional heading-pos)
+  "Return an alist of all properties from the Org property drawer at HEADING-POS.
+If HEADING-POS is nil, use the current heading."
+  (save-excursion
+    (when heading-pos
+      (goto-char heading-pos))
+    ;; Ensure we are at the beginning of a heading
+    (unless (org-at-heading-p)
+      (org-back-to-heading t))
+    ;; Get all properties from the drawer
+    (let ((props (org-entry-properties nil 'all))
+          (data '()))
+      (dolist (p props)
+        (let ((k (intern (concat ":" (replace-regexp-in-string "[[:space:]]+" "-"
+                                                             (downcase (car p)))))))
+          (push (cons k (cdr p)) data)))
+      (nreverse data))))
+
+;; Main Interactive Functions 
 (defun my/extract-trade-data-clean (&optional date-pos)
   "Extract all trade data for the trade rooted at DATE-POS (*** date heading).
 Returns a flat alist of keyword symbols to cleaned values (numbers or strings).
@@ -598,25 +661,6 @@ Skips 'close' and 'lessons' sections."
       (message "%S" data))
     data))
 
-(defun my/get-trade-properties (&optional heading-pos)
-  "Return an alist of all properties from the Org property drawer at HEADING-POS.
-If HEADING-POS is nil, use the current heading."
-  (save-excursion
-    (when heading-pos
-      (goto-char heading-pos))
-    ;; Ensure we are at the beginning of a heading
-    (unless (org-at-heading-p)
-      (org-back-to-heading t))
-    ;; Get all properties from the drawer
-    (let ((props (org-entry-properties nil 'all))
-          (data '()))
-      (dolist (p props)
-        (let ((k (intern (concat ":" (replace-regexp-in-string "[[:space:]]+" "-"
-                                                             (downcase (car p)))))))
-          (push (cons k (cdr p)) data)))
-      (nreverse data))))
-
-;; Main Interactive Functions 
 (defun my/insert-prep-trade ()
   "Insert a prepared trade using values extracted from the current table row in calculations.org."
   (interactive)
