@@ -133,6 +133,35 @@ The returned position is the first line **after** the table."
         (point)))))
 
 ;; Write to table 
+(defun my/build-open-options-row (data schema)
+  "Build a row for Open/Options table from DATA, respecting SCHEMA.
+Fills id, type, init, atr, risk, delta, premium. Leaves other fields blank."
+  (mapcar (lambda (col)
+            (pcase col
+              (:id     (alist-get :trade_id data))
+              (:type   (alist-get :direction data))
+              (:init   (alist-get :init data))
+              (:atr    (alist-get :atr data))
+              (:risk   (alist-get :risk data))
+              (:delta  (alist-get :delta data))
+              (:prem   (alist-get :price data))
+              (_ ""))) ;; all other columns remain empty
+          schema))
+
+(defun my/build-manage-options-row (data schema)
+  "Build a row for Manage table from DATA, respecting SCHEMA.
+Fills id, type, init, premium, delta, gamma. Leaves other fields blank."
+  (mapcar (lambda (col)
+            (pcase col
+              (:id     (alist-get :trade_id data))
+              (:type   (alist-get :direction data))
+              (:init   (alist-get :init data))
+              (:prem   (alist-get :price data))
+              (:delta  (alist-get :delta data))
+              (:gamma  (alist-get :gamma data))
+              (_ ""))) ;; all other columns remain empty
+          schema))
+
 (defun my/build-open-stocks-row (data schema)
   "Build a row for Open/Stocks table from DATA, respecting SCHEMA."
   (mapcar (lambda (col)
@@ -167,6 +196,20 @@ Direction (:type) is always quoted, numbers are raw, nil is empty."
                         "|")
              "|\n"))
     (org-table-align)))
+
+(defun my/write-open-options (data &optional file-name)
+  "Append DATA as a new row to the Open/Options table."
+  (let* ((file (or file-name my-trading-calculations-file))
+         (schema (my/get-table-schema "Open/Options" file))
+         (row (my/build-open-options-row data schema)))
+    (my/write-row-to-table row "Open/Options" file schema)))
+
+(defun my/write-manage-options (data &optional file-name)
+  "Append DATA as a new row to the Manage table."
+  (let* ((file (or file-name my-trading-calculations-file))
+         (schema (my/get-table-schema "Manage" file))
+         (row (my/build-manage-options-row data schema)))
+    (my/write-row-to-table row "Manage" file schema)))
 
 (defun my/write-open-stocks (data &optional file-name)
   "Append DATA as a new row to the Open/Stocks table."
