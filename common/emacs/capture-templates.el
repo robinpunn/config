@@ -750,6 +750,15 @@ Call this while inside the trade's *** date heading."
      (my/fill-options-section (my/prompt-options-fill-data))))
 
   "Step 3: Move trade from Watch → Open."
-  (my/move-trade-watch-to-open)))
+  (my/move-trade-watch-to-open)
+  
+  "Step 4: Write to calculate.org"
+  (let ((final-data (my/extract-trade-data-clean)))
+    (cond
+      ((string= trade-type "stock")
+        (my/write-open-stocks final-data))
+      ((string= trade-type "options")
+        (my/write-open-options final-data)
+        (my/write-manage-options final-data))))))
 
 (provide 'my-trading-workflow)
