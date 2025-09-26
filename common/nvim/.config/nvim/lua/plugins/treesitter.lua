@@ -14,6 +14,7 @@ return {
 	"rust",
 	"c",
 	"asm",
+	"commonlisp",
       },
       highlight = { enable = true },
       indent = { enable = true },
