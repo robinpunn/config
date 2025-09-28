@@ -81,6 +81,33 @@ HEADING-PATH is a string like \"Open/Options\". Signals an error if not found."
           (error "Heading not found: %s" part)))
       (point))))
 
+(defun my/find-current-trade-date-heading ()
+  "Return the position of the current trade's *** date heading.
+If point is already on a *** date heading, returns that position.
+Otherwise searches backward for the nearest *** heading."
+  (or (when (looking-at "^\\*\\*\\* ")
+        (point))
+      (let ((pos (save-excursion
+                   (re-search-backward "^\\*\\*\\* " nil t))))
+        (if pos
+            pos
+          (error "Not inside a trade entry (no *** date heading found)")))))
+
+(defun my/extract-trade-date ()
+  "Return the date string from the current trade's *** date heading.
+Assumes point is anywhere inside the trade."
+  (save-excursion
+    (goto-char (my/find-current-trade-date-heading))
+    (let ((line (thing-at-point 'line t)))
+      ;; Extract everything after the stars and space
+      (if (string-match "^\\*\\*\\* \\(.*\\)$" line)
+          (string-trim (match-string 1 line))
+        (error "Could not extract date from heading")))))
+
+(defun my/get-current-date ()
+  "Return today's date as a string in MM/DD/YY format."
+  (format-time-string "%m/%d/%y"))
+
 ;; find Table 
 (defun my/find-table-in-section (heading-path file-name)
   "Return buffer position of the first Org table inside the section HEADING-PATH in FILE-NAME.
@@ -484,18 +511,6 @@ TYPE-LINE-POS (if non-nil) is removed before writing the drawer."
              trade-id trade-type dir init-price)))
 
 ;; Trade Fill
-(defun my/find-current-trade-date-heading ()
-  "Return the position of the current trade's *** date heading.
-If point is already on a *** date heading, returns that position.
-Otherwise searches backward for the nearest *** heading."
-  (or (when (looking-at "^\\*\\*\\* ")
-        (point))
-      (let ((pos (save-excursion
-                   (re-search-backward "^\\*\\*\\* " nil t))))
-        (if pos
-            pos
-          (error "Not inside a trade entry (no *** date heading found)")))))
-
 (defun my/find-fill-section ()
   "Return the position of the **** fill heading in the current trade.
 Assumes point is anywhere inside the trade.
@@ -510,17 +525,6 @@ Errors if no **** fill section is found."
     (unless fill-pos
       (error "Could not find **** fill section in current trade"))
     fill-pos))
-
-(defun my/extract-trade-date ()
-  "Return the date string from the current trade's *** date heading.
-Assumes point is anywhere inside the trade."
-  (save-excursion
-    (goto-char (my/find-current-trade-date-heading))
-    (let ((line (thing-at-point 'line t)))
-      ;; Extract everything after the stars and space
-      (if (string-match "^\\*\\*\\* \\(.*\\)$" line)
-          (string-trim (match-string 1 line))
-        (error "Could not extract date from heading")))))
 
 (defun my/update-fill-field (field-name value)
   "Update FIELD-NAME in the **** fill section of the current trade with VALUE.
@@ -654,6 +658,83 @@ If HEADING-POS is nil, use the current heading."
           (push (cons k (cdr p)) data)))
       (nreverse data))))
 
+;; trade close
+(defun my/find-trade-close-subsection ()
+  "Return the buffer position of the '***** trade close' subsection for the current trade.
+Assumes point is anywhere inside the trade's *** date heading subtree.
+Errors if not found."
+  (let ((date-pos (my/find-current-trade-date-heading))
+        close-pos)
+    (save-excursion
+      (goto-char date-pos)
+      ;; limit search to the trade subtree (end of level-3 heading)
+      (when (re-search-forward "^\\*\\*\\*\\*\\* +trade close\\>" (my/goto-heading-end 3) t)
+        (setq close-pos (line-beginning-position))))
+    (unless close-pos
+      (error "Could not find ***** trade close subsection in current trade"))
+    close-pos))
+
+(defun my/update-trade-close-field (field-name value)
+  "Update FIELD-NAME in the ***** trade close subsection with VALUE.
+FIELD-NAME should be the bare name (e.g. \"date\", \"price\").
+Assumes point is anywhere inside the trade.
+Uses `my/find-trade-close-subsection` to locate the subsection.
+Will replace the existing line like:
+  - field-name: <old>
+with:
+  - field-name: <value>"
+  (let ((close-pos (my/find-trade-close-subsection))
+        field-regex)
+    (save-excursion
+      (goto-char close-pos)
+      (setq field-regex (format "^\\-[ \t]*%s:?[ \t]*\\(.*\\)$"
+                                 (regexp-quote field-name)))
+      (if (re-search-forward field-regex (my/goto-heading-end 5) t)
+          (replace-match (format "- %s: %s" field-name value) t t)
+        (error "Could not find field '%s' in trade close section" field-name)))))
+
+(defun my/prompt-stock-close-data ()
+  "Prompt user for stock close details (quantity, price) and return as an alist.
+Automatically includes the current date."
+  (let* ((date (my/get-current-date))
+         (quantity (read-string "Close quantity: "))
+         (price (read-string "Close price: ")))
+    `((date . ,date)
+      (quantity . ,quantity)
+      (price . ,price))))
+
+(defun my/prompt-options-close-data ()
+  "Prompt user for options close details.
+Automatically includes the current date and reuses strike/exp from fill."
+  (let* ((data (my/extract-trade-data-clean))
+         (date (my/get-current-date))
+         (quantity (read-string "Close quantity: "))
+         (price (read-string "Close price: "))
+         (exp (alist-get :exp data))
+         (strike (alist-get :strike data)))
+    `((date . ,date)
+      (quantity . ,quantity)
+      (price . ,price)
+      (exp . ,exp)
+      (strike . ,strike))))
+
+(defun my/stock-close-section ()
+  "Fill the ***** trade close subsection of the current stock trade."
+  (let ((data (my/prompt-stock-close-data)))
+    (my/update-trade-close-field "date" (alist-get 'date data))
+    (my/update-trade-close-field "quantity" (alist-get 'quantity data))
+    (my/update-trade-close-field "price" (alist-get 'price data))))
+
+(defun my/options-close-section ()
+  "Fill the ***** trade close subsection of the current options trade."
+  (let ((data (my/prompt-options-close-data)))
+    (my/update-trade-close-field "date" (alist-get 'date data))
+    (my/update-trade-close-field "quantity" (alist-get 'quantity data))
+    (my/update-trade-close-field "price" (alist-get 'price data))
+    (my/update-trade-close-field "exp" (alist-get 'exp data))
+    (my/update-trade-close-field "strike" (alist-get 'strike data))))
+
+
 ;; Main Interactive Functions 
 (defun my/extract-trade-data-clean (&optional date-pos)
   "Extract all trade data for the trade rooted at DATE-POS (*** date heading).
@@ -723,10 +804,10 @@ Skips 'close' and 'lessons' sections."
           (my/insert-trade-template-in-trades-file ticker trade-text)
           (message "%s trade template created for %s" trade-type ticker))))))
 
-(defun my/orchestrate-trade ()
+(defun my/orchestrate-trade-open ()
   "Orchestrator (open trade): prompt for INIT, generate trade-id, and write the property drawer.
 Call this while inside the trade's *** date heading."
-  "Step 1: Prompt for INIT and create the property drawer."
+  ;; Step 1: Prompt for INIT and create the property drawer
   (interactive)
   (let* ((trade-data (my/extract-trade-data))
          (date-pos (cdr (assoc 'date-pos trade-data)))
@@ -742,17 +823,17 @@ Call this while inside the trade's *** date heading."
          (trade-id (format "%s-%s" ticker timestamp)))
   (trade-property-drawer date-pos type-line-pos risk-line-pos trade-id direction init-price trade-type risk-value)
   
-  "Step 2: Enter trade fill information."
+  ;; Step 2: Enter trade fill information
   (cond
     ((string= trade-type "stock")
      (my/fill-stock-section (my/prompt-stock-fill-data)))
     ((string= trade-type "options")
      (my/fill-options-section (my/prompt-options-fill-data))))
 
-  "Step 3: Move trade from Watch → Open."
+  ;; Step 3: Move trade from Watch → Open
   (my/move-trade-watch-to-open)
   
-  "Step 4: Write to calculate.org"
+  ;; Step 4: Write to calculate.org
   (let ((final-data (my/extract-trade-data-clean)))
     (cond
       ((string= trade-type "stock")
@@ -760,5 +841,18 @@ Call this while inside the trade's *** date heading."
       ((string= trade-type "options")
         (my/write-open-options final-data)
         (my/write-manage-options final-data))))))
+
+(defun my/orchestrate-trade-close ()
+  "Orchestrator (close trade): handles the multi-step trade closing process."
+  (interactive)
+  (save-excursion
+    ;; Step 1: Fill trade close subsection
+    (let* ((trade-data (my/extract-trade-data-clean))
+           (type (alist-get :type trade-data nil nil #'string=)))
+      (cond
+       ((string= type "stock")
+        (my/stock-close-section))
+       ((string= type "options")
+        (my/options-close-section))))))
 
 (provide 'my-trading-workflow)
