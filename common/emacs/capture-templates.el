@@ -82,9 +82,6 @@ HEADING-PATH is a string like \"Open/Options\". Signals an error if not found."
       (point))))
 
 (defun my/find-current-trade-date-heading ()
-  "Return the position of the current trade's *** date heading.
-If point is already on a *** date heading, returns that position.
-Otherwise searches backward for the nearest *** heading."
   (or (when (looking-at "^\\*\\*\\* ")
         (point))
       (let ((pos (save-excursion
@@ -236,7 +233,7 @@ Direction (:type) is always quoted, numbers are raw, nil is empty."
   (let* ((file (or file-name my-trading-calculations-file))
          (schema (my/get-table-schema "Manage" file))
          (row (my/build-manage-options-row data schema)))
-    (my/write-row-to-table row "Manage" file schema)))
+  (my/write-row-to-table row "Manage" file schema)))
 
 (defun my/write-open-stocks (data &optional file-name)
   "Append DATA as a new row to the Open/Stocks table."
@@ -246,6 +243,63 @@ Direction (:type) is always quoted, numbers are raw, nil is empty."
     (my/write-row-to-table row "Open/Stocks" file schema)))
 
 ;; Property Drawer Utilities
+(defun my/find-property-drawer-in-region (beg end)
+  "Return the position of the property drawer between BEG and END.
+If not found, return nil."
+  (save-excursion
+    (goto-char beg)
+    (when (re-search-forward "^:PROPERTIES:" end t)
+      (match-beginning 0))))
+
+(defun my/find-trade-property-drawer ()
+  "Return position of property drawer for the current trade entry, or nil."
+  (save-excursion
+    (let* ((start (my/find-current-trade-date-heading))
+           (end   (save-excursion
+                    (goto-char start)
+                    (outline-next-heading)
+                    (point))))
+      (my/find-property-drawer-in-region start end))))
+
+(defun my/find-trade-property-drawer-end ()
+  "Return position of the :END: line in the current trade’s property drawer."
+  (let ((start (my/find-trade-property-drawer)))
+    (when start
+      (save-excursion
+        (goto-char start)
+        (when (re-search-forward "^:END:" (save-excursion (outline-next-heading) (point)) t)
+          (match-beginning 0))))))
+
+(defun my/update-existing-property (property value)
+  "Update PROPERTY in the current trade’s property drawer to VALUE."
+  (save-excursion
+    (let* ((prop (upcase property))
+           (drawer-start (my/find-trade-property-drawer))
+           (drawer-end   (my/find-trade-property-drawer-end)))
+      (when (and drawer-start drawer-end)
+        (goto-char drawer-start)
+        (if (re-search-forward (format "^:%s:.*" prop) drawer-end t)
+            ;; Replace if found
+            (replace-match (format ":%s: %s" prop value) t t)
+          ;; Otherwise, insert before :END:
+          (goto-char drawer-end)
+          (beginning-of-line)
+          (insert (format ":%s: %s\n" prop value)))))))
+
+(defun my/add-new-property (property value)
+  (let ((end-pos (my/find-trade-property-drawer-end)))
+    (unless end-pos
+      (error "No property drawer found in current trade"))
+    (save-excursion
+      (goto-char end-pos)
+      (insert (format ":%s: %s\n" (upcase property) value)))))
+
+(defun my/close-trade-property-drawer ()
+  (let ((outcome (completing-read "Outcome (win/half/loss): "
+                                  '("win" "half" "loss") nil t)))
+    (my/update-existing-property "STATUS" "closed")
+    (my/add-new-property "OUTCOME" outcome)))
+
 (defun my/property-drawer-exists-p ()
   "Check if a property drawer exists at current heading."
   (save-excursion
@@ -260,8 +314,6 @@ Direction (:type) is always quoted, numbers are raw, nil is empty."
       (string-trim (match-string 1)))))
 
 (defun my/write-property-drawer (properties)
-  "Write a property drawer with PROPERTIES alist at current heading.
-PROPERTIES should be an alist of (property . value) pairs."
   (save-excursion
     (end-of-line)
     (insert "\n:PROPERTIES:")
@@ -487,11 +539,8 @@ Returns position after the heading."
     (my/paste-ticker-in-section "Open" ticker-text)
     (message "Trade moved from Watch to Open")))
 
-(defun trade-property-drawer (date-pos type-line-pos risk-line-pos trade-id direction init-price trade-type risk)
-  "Write a property drawer at DATE-POS with TRADE-ID, DIRECTION and INIT-PRICE.
-TYPE is derived from DIRECTION: call/put -> \"options\", otherwise -> \"stock\".
-TYPE-LINE-POS (if non-nil) is removed before writing the drawer."
-  (let* ((dir (when direction (downcase (string-trim direction)))) 
+(defun my/trade-property-drawer (date-pos type-line-pos risk-line-pos trade-id direction init-price trade-type risk)
+   (let* ((dir (when direction (downcase (string-trim direction)))) 
          (properties `(("TRADE_ID" . ,trade-id)
                        ("TYPE"     . ,trade-type)
                        ("DIRECTION". ,dir)
@@ -503,7 +552,7 @@ TYPE-LINE-POS (if non-nil) is removed before writing the drawer."
       (my/remove-risk-line risk-line-pos))
     (when type-line-pos
       (my/remove-type-line type-line-pos))
-        ;; Write the property drawer at the date heading
+    ;; Write the property drawer at the date heading
     (save-excursion
       (goto-char date-pos)
       (my/write-property-drawer properties))
@@ -512,9 +561,6 @@ TYPE-LINE-POS (if non-nil) is removed before writing the drawer."
 
 ;; Trade Fill
 (defun my/find-fill-section ()
-  "Return the position of the **** fill heading in the current trade.
-Assumes point is anywhere inside the trade.
-Errors if no **** fill section is found."
   (let ((date-pos (my/find-current-trade-date-heading))
         fill-pos)
     (save-excursion
@@ -527,9 +573,6 @@ Errors if no **** fill section is found."
     fill-pos))
 
 (defun my/update-fill-field (field-name value)
-  "Update FIELD-NAME in the **** fill section of the current trade with VALUE.
-Assumes point is anywhere inside the trade.
-FIELD-NAME should be the string without the leading dash, e.g., \"date\" or \"price\"."
   (let ((fill-pos (my/find-fill-section))
         field-regex)
     (save-excursion
@@ -659,6 +702,15 @@ If HEADING-POS is nil, use the current heading."
       (nreverse data))))
 
 ;; trade close
+(defun my/move-trade-open-to-watch ()
+  "Move the current trade's ticker from Watch section to Open section in trades.org."
+  (let* ((date-pos (my/find-current-trade-date-heading))
+         (ticker-pos (my/find-ticker-heading-position date-pos))
+         (ticker-text (my/cut-entire-ticker-section ticker-pos)))
+    (my/paste-ticker-in-section "Watch" ticker-text)
+    (message "Trade moved from Open to Watch")))
+
+
 (defun my/find-trade-close-subsection ()
   "Return the buffer position of the '***** trade close' subsection for the current trade.
 Assumes point is anywhere inside the trade's *** date heading subtree.
@@ -733,7 +785,6 @@ Automatically includes the current date and reuses strike/exp from fill."
     (my/update-trade-close-field "price" (alist-get 'price data))
     (my/update-trade-close-field "exp" (alist-get 'exp data))
     (my/update-trade-close-field "strike" (alist-get 'strike data))))
-
 
 ;; Main Interactive Functions 
 (defun my/extract-trade-data-clean (&optional date-pos)
@@ -821,7 +872,7 @@ Call this while inside the trade's *** date heading."
          (init-price (read-string "Enter initial price of underlying (INIT): "))
          (timestamp (format-time-string "%y%m%d"))
          (trade-id (format "%s-%s" ticker timestamp)))
-  (trade-property-drawer date-pos type-line-pos risk-line-pos trade-id direction init-price trade-type risk-value)
+  (my/trade-property-drawer date-pos type-line-pos risk-line-pos trade-id direction init-price trade-type risk-value)
   
   ;; Step 2: Enter trade fill information
   (cond
@@ -853,6 +904,12 @@ Call this while inside the trade's *** date heading."
        ((string= type "stock")
         (my/stock-close-section))
        ((string= type "options")
-        (my/options-close-section))))))
+        (my/options-close-section))))
+
+    ;; Step 2: Update property drawer
+    (my/close-trade-property-drawer)
+
+    ;; Step 3: Move trade from Open to Watch in trades.org
+    (my/move-trade-open-to-watch)))
 
 (provide 'my-trading-workflow)
