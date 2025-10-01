@@ -21,6 +21,18 @@
   :group 'my-trading)
 
 ;; Generic Utility Functions
+(defmacro my/with-trading-file (file-var &rest body)
+  "Execute BODY with FILE-VAR buffer current, saving afterwards."
+  `(with-current-buffer (find-file-noselect ,file-var)
+     (prog1 (progn ,@body)
+       (save-buffer))))
+
+(defun my/find-buffer-for-filename (file-name)
+  "Return the buffer visiting `file-name`.
+If it isn't already open, open it."
+  (or (find-buffer-visiting file-name)
+      (find-file-noselect file-name)))
+
 (defun my/find-org-heading (level text &optional direction limit)
   "Find an org heading of LEVEL with TEXT content.
 LEVEL should be 1 for *, 2 for **, 3 for ***, etc.
@@ -45,12 +57,6 @@ DIRECTION can be 'backward or 'forward (default backward for context)."
       (when (funcall search-func pattern nil t)
         (string-trim (match-string 1))))))
 
-(defmacro my/with-trading-file (file-var &rest body)
-  "Execute BODY with FILE-VAR buffer current, saving afterwards."
-  `(with-current-buffer (find-file-noselect ,file-var)
-     (prog1 (progn ,@body)
-       (save-buffer))))
-
 (defun my/goto-heading-end (level)
   "Move point to the end of current heading section at LEVEL.
 Returns the end position."
@@ -61,15 +67,7 @@ Returns the end position."
           (line-beginning-position)
         (point-max)))))
 
-(defun my/find-buffer-for-filename (file-name)
-  "Return the buffer visiting `file-name`.
-If it isn't already open, open it."
-  (or (find-buffer-visiting file-name)
-      (find-file-noselect file-name)))
-
 (defun my/goto-heading (heading-path file-name)
-  "Navigate to a heading specified by HEADING-PATH in calculate.org.
-HEADING-PATH is a string like \"Open/Options\". Signals an error if not found."
   (let ((parts (split-string heading-path "/"))
         (buf (my/find-buffer-for-filename file-name)))
     (with-current-buffer buf
@@ -107,18 +105,35 @@ Assumes point is anywhere inside the trade."
 
 ;; find Table 
 (defun my/find-table-in-section (heading-path file-name)
-  "Return buffer position of the first Org table inside the section HEADING-PATH in FILE-NAME.
-Signals an error if no table is found."
+  "Return the point at the beginning of the first table under HEADING-PATH in FILE-NAME."
   (let ((buf (my/find-buffer-for-filename file-name)))
     (with-current-buffer buf
-      ;; Go to the heading
       (my/goto-heading heading-path file-name)
-      ;; Search for the table in this subtree
       (let ((end (save-excursion (org-end-of-subtree t))))
-        (unless (re-search-forward org-table-dataline-regexp end t)
+        (unless (re-search-forward org-table-any-line-regexp end t)
           (error "No table found in section: %s" heading-path))
         (beginning-of-line)
         (point)))))
+
+(defun my/get-table-end-position (heading-path file-name)
+  "Return the point just after the first table under HEADING-PATH in FILE-NAME."
+  (let ((buf (my/find-buffer-for-filename file-name)))
+    (with-current-buffer buf
+      (my/goto-heading heading-path file-name)
+      (let ((end (save-excursion (org-end-of-subtree t))))
+        (unless (re-search-forward org-table-any-line-regexp end t)
+          (error "No table found in section: %s" heading-path))
+        (beginning-of-line)
+        (while (looking-at org-table-any-line-regexp)
+          (forward-line 1))
+        (point)))))
+
+(defun my/get-table-bounds (section file)
+  "Return (START END) buffer positions of the first table in SECTION of FILE.
+END is the first line *after* the table."
+  (let ((start (my/find-table-in-section section file))
+        (end   (my/get-table-end-position section file)))
+    (list start end)))
 
 (defun my/get-table-header ()
   "Return the header row of the current org table as a list of strings."
@@ -142,19 +157,6 @@ table under HEADING-PATH in FILE-NAME."
       (goto-char (my/find-table-in-section heading-path file-name))
       (my/normalize-table-header (my/get-table-header)))))
 
-(defun my/get-table-end-position (section file)
-  "Return the buffer position at the end of the first table in SECTION of FILE.
-The returned position is the first line **after** the table."
-  (save-excursion
-    (my/with-trading-file file
-      (my/goto-heading section file)
-      (when (re-search-forward org-table-any-line-regexp nil t)
-        (beginning-of-line)
-        ;; Walk forward until we're past the last table line
-        (while (looking-at org-table-any-line-regexp)
-          (forward-line 1))
-        ;; Return position just after table
-        (point)))))
 
 ;; Write to table 
 (defun my/build-open-options-row (data schema)
@@ -242,6 +244,42 @@ Direction (:type) is always quoted, numbers are raw, nil is empty."
          (row (my/build-open-stocks-row data schema)))
     (my/write-row-to-table row "Open/Stocks" file schema)))
 
+;; Remove row from table
+(defun my/find-row-by-trade-id (trade-id)
+  (save-excursion
+    ;; Ensure we start in the table
+    (while (not (org-at-table-p))
+      (forward-line 1))
+    (let ((found nil))
+      (while (and (org-at-table-p) (not found))
+        (let ((row-id (string-trim (or (org-table-get-field 1) ""))))
+          (if (string= row-id trade-id)
+              (setq found (point))
+            (forward-line 1))))
+      found)))
+
+(defun my/delete-current-table-row ()
+  "Delete the current Org table row if point is inside a table row."
+  (if (org-at-table-p)
+      (org-table-kill-row)
+    (error "Not at a table row")))
+
+(defun my/delete-trade-from-calculate-table (file-name heading-path trade-id)
+  (let ((buf (my/find-buffer-for-filename file-name)))
+    (with-current-buffer buf
+      (let ((table-start (my/find-table-in-section heading-path file-name))
+            (table-end   (my/get-table-end-position heading-path file-name))
+            (deleted nil))
+        (save-excursion
+          (goto-char table-start)
+          (let ((row-pos (my/find-row-by-trade-id trade-id)))
+            (when (and row-pos (< row-pos table-end))
+              (goto-char row-pos)
+              (my/delete-current-table-row)
+              (setq deleted t))))
+        (unless deleted
+          (error "Trade %s not found in %s table" trade-id heading-path)))))) 
+
 ;; Property Drawer Utilities
 (defun my/find-property-drawer-in-region (beg end)
   "Return the position of the property drawer between BEG and END.
@@ -306,12 +344,20 @@ If not found, return nil."
     (forward-line 1)
     (looking-at "^:PROPERTIES:")))
 
-(defun my/read-property-value (property)
-  "Read the value of PROPERTY from current heading's property drawer."
-  "Need to be at heading for this to work"
+(defun my/read-property-value (property) 
   (save-excursion
     (when (re-search-forward (format "^:%s: +\\(.*\\)$" (upcase property)) nil t)
       (string-trim (match-string 1)))))
+
+(defun my/read-trade-property-value (property)
+  (let ((start (my/find-trade-property-drawer))
+        (end   (my/find-trade-property-drawer-end)))
+    (when (and start end)
+      (save-excursion
+        (goto-char start)
+        (when (re-search-forward
+               (format "^:%s: +\\(.*\\)$" (upcase property)) end t)
+          (string-trim (substring-no-properties (match-string 1))))))))
 
 (defun my/write-property-drawer (properties)
   (save-excursion
@@ -701,7 +747,7 @@ If HEADING-POS is nil, use the current heading."
           (push (cons k (cdr p)) data)))
       (nreverse data))))
 
-;; trade close
+;; trade close in trades.org
 (defun my/move-trade-open-to-watch ()
   "Move the current trade's ticker from Watch section to Open section in trades.org."
   (let* ((date-pos (my/find-current-trade-date-heading))
@@ -709,7 +755,6 @@ If HEADING-POS is nil, use the current heading."
          (ticker-text (my/cut-entire-ticker-section ticker-pos)))
     (my/paste-ticker-in-section "Watch" ticker-text)
     (message "Trade moved from Open to Watch")))
-
 
 (defun my/find-trade-close-subsection ()
   "Return the buffer position of the '***** trade close' subsection for the current trade.
@@ -894,22 +939,36 @@ Call this while inside the trade's *** date heading."
         (my/write-manage-options final-data))))))
 
 (defun my/orchestrate-trade-close ()
-  "Orchestrator (close trade): handles the multi-step trade closing process."
   (interactive)
   (save-excursion
     ;; Step 1: Fill trade close subsection
     (let* ((trade-data (my/extract-trade-data-clean))
-           (type (alist-get :type trade-data nil nil #'string=)))
+           (type (alist-get :type trade-data nil nil #'string=))
+           (trade-id (alist-get :trade_id trade-data)))
       (cond
        ((string= type "stock")
         (my/stock-close-section))
        ((string= type "options")
-        (my/options-close-section))))
+        (my/options-close-section)))
 
-    ;; Step 2: Update property drawer
-    (my/close-trade-property-drawer)
+      ;; Step 2: Update property drawer
+      (my/close-trade-property-drawer)
 
-    ;; Step 3: Move trade from Open to Watch in trades.org
-    (my/move-trade-open-to-watch)))
+      ;; Step 3: Move trade from Open to Watch in trades.org
+      (my/move-trade-open-to-watch)
+      
+      ; Step 4: Delete corresponding rows from calculate.org tables
+      (cond
+        ;; Stocks → only *Open/Stocks
+        ((string= type "stock")
+          (my/delete-trade-from-calculate-table
+           my-trading-calculations-file "Open/Stocks" trade-id))
+
+        ;; Options → both *Open/Options and *write-manage-options
+        ((string= type "options")
+          (my/delete-trade-from-calculate-table
+           my-trading-calculations-file "Open/Options" trade-id)
+          (my/delete-trade-from-calculate-table
+           my-trading-calculations-file "Manage" trade-id))))))
 
 (provide 'my-trading-workflow)
