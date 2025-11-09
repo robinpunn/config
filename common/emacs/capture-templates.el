@@ -48,15 +48,6 @@ If it isn't already open, open it."
           (setq found (point))))
       found)))
 
-(defun my/get-trade-date-heading ()
-  ;; RENAME to my/find-current-trade-date-heading 
-  "Return the heading text of the nearest trade date (*** MM/DD/YY) above point."
-  (let ((pos (my/find-org-heading 3 nil 'backward))) ; level 3 = date
-    (when pos
-      (save-excursion
-        (goto-char pos)
-        (org-get-heading t t t t)))))
-
 (defun my/get-org-heading-content (level &optional direction)
   ;; DELETE THIS, replace with above function... 
   "Get the content text of an org heading at LEVEL.
@@ -100,15 +91,12 @@ Returns the end position."
           (error "Not inside a trade entry (no *** date heading found)")))))
 
 (defun my/extract-trade-date ()
-  "Return the date string from the current trade's *** date heading.
-Assumes point is anywhere inside the trade."
-  (save-excursion
-    (goto-char (my/find-current-trade-date-heading))
-    (let ((line (thing-at-point 'line t)))
-      ;; Extract everything after the stars and space
-      (if (string-match "^\\*\\*\\* \\(.*\\)$" line)
-          (string-trim (match-string 1 line))
-        (error "Could not extract date from heading")))))
+  "Return the heading text of the nearest trade date (*** MM/DD/YY) above point."
+  (let ((pos (my/find-org-heading 3 nil 'backward))) ; level 3 = date
+    (when pos
+      (save-excursion
+        (goto-char pos)
+        (org-get-heading t t t t)))))
 
 (defun my/get-current-date ()
   "Return today's date as a string in MM/DD/YY format."
@@ -927,6 +915,13 @@ Skips 'close' and 'lessons' sections."
           (message "%s trade template created for %s" trade-type ticker))))))
 
 (defun my/orchestrate-trade-open ()
+(defun my/extract-trade-date ()
+  "Return the heading text of the nearest trade date (*** MM/DD/YY) above point."
+  (let ((pos (my/find-org-heading 3 nil 'backward))) ; level 3 = date
+    (when pos
+      (save-excursion
+        (goto-char pos)
+        (org-get-heading t t t t)))))
   "Orchestrator (open trade): prompt for INIT, generate trade-id, and write the property drawer.
 Call this while inside the trade's *** date heading."
   ;; Step 1: Prompt for INIT and create the property drawer
