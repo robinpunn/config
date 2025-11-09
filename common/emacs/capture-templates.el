@@ -34,20 +34,31 @@ If it isn't already open, open it."
       (find-file-noselect file-name)))
 
 (defun my/find-org-heading (level text &optional direction limit)
-  "Find an org heading of LEVEL with TEXT content.
-LEVEL should be 1 for *, 2 for **, 3 for ***, etc.
-DIRECTION can be 'backward or 'forward (default forward).
-LIMIT is the search boundary (nil for no limit).
-Returns the position of the heading or nil if not found."
-  (let* ((stars (format "\\*\\{%d\\}" level))           ; exact count of stars
-         (name-part (if text (regexp-quote text) "\\(.*\\)"))
-         (pattern (format "^%s %s" stars name-part))
-         (search-func (if (eq direction 'backward) 're-search-backward 're-search-forward)))
+  (let ((search-fn (if (eq direction 'backward)
+                       #'org-previous-visible-heading
+                     #'org-next-visible-heading))
+        (found nil))
     (save-excursion
-      (when (funcall search-func pattern limit t)
-        (line-beginning-position)))))
+      (goto-char (or limit (if (eq direction 'backward) (point-max) (point-min))))
+      (while (and (not found)
+                  (funcall search-fn))
+        (when (and (= (org-outline-level) level)
+                   (or (not text)
+                       (string= (org-get-heading t t t t) text)))
+          (setq found (point))))
+      found)))
+
+(defun my/get-trade-date-heading ()
+  ;; RENAME to my/find-current-trade-date-heading 
+  "Return the heading text of the nearest trade date (*** MM/DD/YY) above point."
+  (let ((pos (my/find-org-heading 3 nil 'backward))) ; level 3 = date
+    (when pos
+      (save-excursion
+        (goto-char pos)
+        (org-get-heading t t t t)))))
 
 (defun my/get-org-heading-content (level &optional direction)
+  ;; DELETE THIS, replace with above function... 
   "Get the content text of an org heading at LEVEL.
 DIRECTION can be 'backward or 'forward (default backward for context)."
   (let* ((stars (format "\\*\\{%d\\}" level))
@@ -290,7 +301,7 @@ If not found, return nil."
       (match-beginning 0))))
 
 (defun my/find-trade-property-drawer ()
-  "Return position of property drawer for the current trade entry, or nil."
+  ;; function no longer needed, was using this when i initially used regex
   (save-excursion
     (let* ((start (my/find-current-trade-date-heading))
            (end   (save-excursion
@@ -300,7 +311,7 @@ If not found, return nil."
       (my/find-property-drawer-in-region start end))))
 
 (defun my/find-trade-property-drawer-end ()
-  "Return position of the :END: line in the current trade’s property drawer."
+  ;; function no longer needed, was using this when i implemented regex to find property drawer start and end
   (let ((start (my/find-trade-property-drawer)))
     (when start
       (save-excursion
@@ -324,6 +335,13 @@ If not found, return nil."
           (beginning-of-line)
           (insert (format ":%s: %s\n" prop value)))))))
 
+(defun my/update-existing-propertyNEW (property value)
+  "Update PROPERTY to VALUE only if the property drawer already exists."
+  (save-excursion
+    (when (org-entry-properties (point) 'standard)
+      (when (org-entry-get (point) property)
+        (org-entry-put (point) property value)))))
+
 (defun my/add-new-property (property value)
   (let ((end-pos (my/find-trade-property-drawer-end)))
     (unless end-pos
@@ -331,6 +349,13 @@ If not found, return nil."
     (save-excursion
       (goto-char end-pos)
       (insert (format ":%s: %s\n" (upcase property) value)))))
+
+(defun my/update-existing-property (property value)
+  "Update PROPERTY to VALUE only if the property drawer already exists."
+  (save-excursion
+    (when (org-entry-properties (point) 'standard)
+      (when (org-entry-get (point) property)
+        (org-entry-put (point) property value)))))
 
 (defun my/close-trade-property-drawer ()
   (let ((outcome (completing-read "Outcome (win/half/loss): "
@@ -386,6 +411,7 @@ Returns an alist with ticker, type info, and position."
   (let* ((date-pos (my/find-current-trade-date-heading))
          (ticker (save-excursion
                   (goto-char date-pos)
+		  ;; REPLACE with new org heading function (my/get-trade-date-heading)...
                   (my/get-org-heading-content 2 'backward)))
          (type-info (my/find-and-extract-type-line date-pos))
          (risk-info (my/find-and-extract-risk-line date-pos)))
