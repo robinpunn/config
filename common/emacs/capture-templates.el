@@ -33,7 +33,44 @@ If it isn't already open, open it."
   (or (find-buffer-visiting file-name)
       (find-file-noselect file-name)))
 
+;;;; find heading
+(defun my/org-heading-matches-p (level &optional text)
+  "Return t if the current heading is LEVEL and matches TEXT (if non-nil)."
+  (and (= (org-outline-level) level)
+       (or (not text)
+           (string= (org-get-heading t t t t) text))))
+
+(defun my/move-to-next-heading (&optional direction)
+  (let ((func (if (eq direction 'backward)
+                  #'org-previous-visible-heading
+                #'org-next-visible-heading)))
+    (when (funcall func)
+      (org-show-entry) ;; expand current heading so nested subheadings are accessible
+      t)))
+
 (defun my/find-org-heading (level text &optional direction limit)
+  (let ((search-fn (if (eq direction 'backward)
+                       #'org-previous-visible-heading
+                     #'org-next-visible-heading))
+        (found nil))
+    (save-excursion
+      (goto-char (or limit (if (eq direction 'backward) (point-min) (point-min))))
+      
+      (when (and (= (org-outline-level) level)
+                 (or (not text)
+                     (string= (org-get-heading t t t t) text)))
+        (setq found (point)))
+      
+      (while (and (not found)
+                  (funcall search-fn 1))  ;; move to next/prev heading
+        (when (and (= (org-outline-level) level)
+                   (or (not text)
+                       (string= (org-get-heading t t t t) text)))
+          (setq found (point))))
+      found)))
+
+
+(defun my/find-org-heading2 (level text &optional direction limit)
   (let ((search-fn (if (eq direction 'backward)
                        #'org-previous-visible-heading
                      #'org-next-visible-heading))
@@ -41,7 +78,7 @@ If it isn't already open, open it."
     (save-excursion
       (goto-char (or limit (if (eq direction 'backward) (point-max) (point-min))))
       (while (and (not found)
-                  (funcall search-fn))
+                  (funcall search-fn 1))
         (when (and (= (org-outline-level) level)
                    (or (not text)
                        (string= (org-get-heading t t t t) text)))
@@ -49,6 +86,14 @@ If it isn't already open, open it."
       found)))
 
 (defun my/get-org-heading-content (level &optional direction)
+  "Return the text of an Org heading at LEVEL in DIRECTION (forward/backward)."
+  (let ((pos (my/find-org-heading level nil direction)))
+    (when pos
+      (save-excursion
+        (goto-char pos)
+        (org-get-heading t t t t)))))
+
+(defun my/get-org-heading-contentOG (level &optional direction)
   ;; DELETE THIS, replace with above function... 
   "Get the content text of an org heading at LEVEL.
 DIRECTION can be 'backward or 'forward (default backward for context)."
@@ -70,6 +115,7 @@ Returns the end position."
         (point-max)))))
 
 (defun my/goto-heading (heading-path file-name)
+ ;; RENAME this to go-to-heading-in-another-file 
   (let ((parts (split-string heading-path "/"))
         (buf (my/find-buffer-for-filename file-name)))
     (with-current-buffer buf
@@ -82,21 +128,23 @@ Returns the end position."
       (point))))
 
 (defun my/find-current-trade-date-heading ()
-  (or (when (looking-at "^\\*\\*\\* ")
-        (point))
-      (let ((pos (save-excursion
-                   (re-search-backward "^\\*\\*\\* " nil t))))
-        (if pos
-            pos
-          (error "Not inside a trade entry (no *** date heading found)")))))
+  "Return point of the nearest level-3 heading above point (a trade date).
+If none is found, show a message and return nil instead of signaling an error."
+  (let ((pos (my/find-org-heading 3 nil 'backward)))
+    (if pos
+        pos
+      (message "Not inside a trade entry (no *** date heading found)")
+      nil)))
+
+(defun my/find-current-trade-date-heading ()
+  (or (my/find-org-heading 3 nil 'backward)
+      (error "Not inside a trade entry (no *** date heading found)")))
 
 (defun my/extract-trade-date ()
-  "Return the heading text of the nearest trade date (*** MM/DD/YY) above point."
-  (let ((pos (my/find-org-heading 3 nil 'backward))) ; level 3 = date
-    (when pos
-      (save-excursion
-        (goto-char pos)
-        (org-get-heading t t t t)))))
+  (my/get-org-heading-content 3 'backward))
+
+(defun my/extract-ticker ()
+  (my/get-org-heading-content 2 'backward))
 
 (defun my/get-current-date ()
   "Return today's date as a string in MM/DD/YY format."
@@ -399,8 +447,7 @@ Returns an alist with ticker, type info, and position."
   (let* ((date-pos (my/find-current-trade-date-heading))
          (ticker (save-excursion
                   (goto-char date-pos)
-		  ;; REPLACE with new org heading function (my/get-trade-date-heading)...
-                  (my/get-org-heading-content 2 'backward)))
+                  (my/extract-ticker )))
          (type-info (my/find-and-extract-type-line date-pos))
          (risk-info (my/find-and-extract-risk-line date-pos)))
     `((date-pos . ,date-pos)
@@ -915,13 +962,6 @@ Skips 'close' and 'lessons' sections."
           (message "%s trade template created for %s" trade-type ticker))))))
 
 (defun my/orchestrate-trade-open ()
-(defun my/extract-trade-date ()
-  "Return the heading text of the nearest trade date (*** MM/DD/YY) above point."
-  (let ((pos (my/find-org-heading 3 nil 'backward))) ; level 3 = date
-    (when pos
-      (save-excursion
-        (goto-char pos)
-        (org-get-heading t t t t)))))
   "Orchestrator (open trade): prompt for INIT, generate trade-id, and write the property drawer.
 Call this while inside the trade's *** date heading."
   ;; Step 1: Prompt for INIT and create the property drawer
