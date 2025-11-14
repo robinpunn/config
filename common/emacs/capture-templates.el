@@ -88,17 +88,6 @@ Returns the end position."
             pos
           (error "Not inside a trade entry (no *** date heading found)")))))
 
-(defun my/extract-trade-date ()
-  "Return the date string from the current trade's *** date heading.
-Assumes point is anywhere inside the trade."
-  (save-excursion
-    (goto-char (my/find-current-trade-date-heading))
-    (let ((line (thing-at-point 'line t)))
-      ;; Extract everything after the stars and space
-      (if (string-match "^\\*\\*\\* \\(.*\\)$" line)
-          (string-trim (match-string 1 line))
-        (error "Could not extract date from heading")))))
-
 (defun my/get-current-date ()
   "Return today's date as a string in MM/DD/YY format."
   (format-time-string "%m/%d/%y"))
@@ -156,7 +145,6 @@ table under HEADING-PATH in FILE-NAME."
     (with-current-buffer buf
       (goto-char (my/find-table-in-section heading-path file-name))
       (my/normalize-table-header (my/get-table-header)))))
-
 
 ;; Write to table 
 (defun my/build-open-options-row (data schema)
@@ -367,6 +355,19 @@ If not found, return nil."
       (insert (format "\n:%s: %s" (upcase (car prop)) (cdr prop))))
     (insert "\n:END:")))
 
+(defun my/extract-properties-data ()
+  "Extract all org properties from current heading as keyword alist.
+Returns list of (:keyword . value) cons cells."
+  (let ((data '())
+        (start-pos (my/find-current-trade-date-heading)))
+    (save-excursion
+      (goto-char start-pos)
+      (dolist (p (org-entry-properties nil 'standard))
+        (let ((k (intern (concat ":" (replace-regexp-in-string "[[:space:]]+" "-"
+                                                             (downcase (car p)))))))
+          (push (cons k (my/clean-extracted-value (cdr p))) data))))
+    (nreverse data)))
+
 ;; Data Processing Utilities
 (defun my/clean-table-value (value)
   "Clean a table value by trimming and removing quotes."
@@ -528,6 +529,55 @@ Returns position after the heading."
           (forward-line 1)
           (insert (format "** %s\n" ticker))
           (point))))))
+
+(defun my/extract-trade-date ()
+  (save-excursion
+    (goto-char (my/find-current-trade-date-heading))
+    (let ((line (thing-at-point 'line t)))
+      ;; Extract everything after the stars and space
+      (if (string-match "^\\*\\*\\* \\(.*\\)$" line)
+          (string-trim (match-string 1 line))
+        (error "Could not extract date from heading")))))
+
+(defun my/extract-ticker-data ()
+  (save-excursion
+    (goto-char (my/find-ticker-heading-position (my/find-current-trade-date-heading)))
+    (let ((line (thing-at-point 'line t)))
+      ;; Extract everything after the stars and space
+      (if (string-match "^\\*\\* \\(.*\\)$" line)
+          (string-trim (match-string 1 line))
+        (error "Could not extractte ticker")))))
+
+(defun my/extract-sections-data (&optional start-pos trade-end exclude-sections)
+  (setq start-pos (or start-pos (my/find-current-trade-date-heading)))
+  (setq trade-end (or trade-end
+                      (save-excursion
+                        (goto-char start-pos)
+                        (my/goto-heading-end 3))))
+  (setq exclude-sections (or exclude-sections '("close" "lessons")))
+  
+  (let ((data '()))
+    (save-excursion
+      (goto-char start-pos)
+      (while (re-search-forward "^\\*\\*\\*\\* \\(.*\\)$" trade-end t)
+        (let* ((section (downcase (string-trim (match-string 1))))
+               (sec-beg (match-beginning 0))
+               (sec-end (save-excursion
+                          (goto-char sec-beg)
+                          (my/goto-heading-end 4))))
+          (unless (member section exclude-sections)
+            (save-excursion
+              (goto-char (1+ sec-beg))
+              (while (re-search-forward "^[ \t]*- " sec-end t)
+                (beginning-of-line)
+                (setq data
+                      (append
+                       (mapcar (lambda (cons)
+                                 (cons (car cons)
+                                       (my/clean-extracted-value (cdr cons))))
+                               (my/parse-indented-list-for-extractor sec-end))
+                       data))))))))
+    data))
 
 ;; Calculations Data Extraction 
 (defun my/extract-values-from-current-calculations-row ()
@@ -832,50 +882,31 @@ Automatically includes the current date and reuses strike/exp from fill."
     (my/update-trade-close-field "strike" (alist-get 'strike data))))
 
 ;; Main Interactive Functions 
-(defun my/extract-trade-data-clean (&optional date-pos)
-  "Extract all trade data for the trade rooted at DATE-POS (*** date heading).
-Returns a flat alist of keyword symbols to cleaned values (numbers or strings).
-Skips 'close' and 'lessons' sections."
+(defun my/extract-trade-data-clean (&optional exclude-sections date-pos)
   (interactive)
   (let* ((start-pos (or date-pos (my/find-current-trade-date-heading)))
-         (trade-end (save-excursion (goto-char start-pos) (my/goto-heading-end 3)))
+         (trade-end (save-excursion (goto-char start-pos)
+                                    (my/goto-heading-end 3)))
+         (exclude-sections (or exclude-sections '("close" "lessons")))
          (data '()))
     (save-excursion
       ;; 1) ticker
-      (let ((ticker-pos (my/find-ticker-heading-position start-pos)))
-        (when ticker-pos
-          (save-excursion
-            (goto-char ticker-pos)
-            (when (looking-at "^\\*\\* \\(.*\\)$")
-              (push (cons :ticker (my/clean-extracted-value (match-string 1))) data)))))
+      (push (cons :ticker
+                  (my/clean-extracted-value (my/extract-ticker-data)))
+            data)
 
       ;; 2) date
-      (push (cons :date (my/clean-extracted-value (my/extract-trade-date))) data)
+      (push (cons :date
+                  (my/clean-extracted-value (my/extract-trade-date)))
+            data)
 
-      ;; 3) properties
-      (goto-char start-pos)
-      (dolist (p (org-entry-properties nil 'standard))
-        (let ((k (intern (concat ":" (replace-regexp-in-string "[[:space:]]+" "-"
-                                                             (downcase (car p)))))))
-          (push (cons k (my/clean-extracted-value (cdr p))) data))))
+      ;; 3) properties 
+      (setq data (append (my/extract-properties-data) data)))
 
-      ;; 4) sections
-      (goto-char start-pos)
-      (while (re-search-forward "^\\*\\*\\*\\* \\(.*\\)$" trade-end t)
-        (let* ((section (downcase (string-trim (match-string 1))))
-               (sec-beg (match-beginning 0))
-               (sec-end (save-excursion (goto-char sec-beg) (my/goto-heading-end 4))))
-          (unless (member section '("close" "lessons"))
-            (goto-char sec-beg)
-            (while (re-search-forward "^[ \t]*- " sec-end t)
-              (beginning-of-line)
-              (setq data
-                    (append (mapcar (lambda (cons)
-                                      (cons (car cons)
-                                            (my/clean-extracted-value (cdr cons))))
-                                    (my/parse-indented-list-for-extractor sec-end))
-                            data))))))
-    ;; Return results
+    ;; 4) sections 
+    (setq data (append (my/extract-sections-data start-pos trade-end exclude-sections)
+                       data))
+
     (setq data (nreverse data))
     (when (called-interactively-p 'any)
       (message "%S" data))
