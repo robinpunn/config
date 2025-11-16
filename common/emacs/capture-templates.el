@@ -548,7 +548,7 @@ Returns position after the heading."
           (string-trim (match-string 1 line))
         (error "Could not extractte ticker")))))
 
-(defun my/extract-sections-data (&optional start-pos trade-end exclude-sections)
+(defun my/extract-sections-data (&optional exclude-sections start-pos trade-end)
   (setq start-pos (or start-pos (my/find-current-trade-date-heading)))
   (setq trade-end (or trade-end
                       (save-excursion
@@ -807,9 +807,6 @@ If HEADING-POS is nil, use the current heading."
     (message "Trade moved from Open to Watch")))
 
 (defun my/find-trade-close-subsection ()
-  "Return the buffer position of the '***** trade close' subsection for the current trade.
-Assumes point is anywhere inside the trade's *** date heading subtree.
-Errors if not found."
   (let ((date-pos (my/find-current-trade-date-heading))
         close-pos)
     (save-excursion
@@ -822,14 +819,6 @@ Errors if not found."
     close-pos))
 
 (defun my/update-trade-close-field (field-name value)
-  "Update FIELD-NAME in the ***** trade close subsection with VALUE.
-FIELD-NAME should be the bare name (e.g. \"date\", \"price\").
-Assumes point is anywhere inside the trade.
-Uses `my/find-trade-close-subsection` to locate the subsection.
-Will replace the existing line like:
-  - field-name: <old>
-with:
-  - field-name: <value>"
   (let ((close-pos (my/find-trade-close-subsection))
         field-regex)
     (save-excursion
@@ -841,8 +830,6 @@ with:
         (error "Could not find field '%s' in trade close section" field-name)))))
 
 (defun my/prompt-stock-close-data ()
-  "Prompt user for stock close details (quantity, price) and return as an alist.
-Automatically includes the current date."
   (let* ((date (my/get-current-date))
          (quantity (read-string "Close quantity: "))
          (price (read-string "Close price: ")))
@@ -851,8 +838,6 @@ Automatically includes the current date."
       (price . ,price))))
 
 (defun my/prompt-options-close-data ()
-  "Prompt user for options close details.
-Automatically includes the current date and reuses strike/exp from fill."
   (let* ((data (my/extract-trade-data-clean))
          (date (my/get-current-date))
          (quantity (read-string "Close quantity: "))
@@ -866,20 +851,39 @@ Automatically includes the current date and reuses strike/exp from fill."
       (strike . ,strike))))
 
 (defun my/stock-close-section ()
-  "Fill the ***** trade close subsection of the current stock trade."
   (let ((data (my/prompt-stock-close-data)))
     (my/update-trade-close-field "date" (alist-get 'date data))
     (my/update-trade-close-field "quantity" (alist-get 'quantity data))
     (my/update-trade-close-field "price" (alist-get 'price data))))
 
 (defun my/options-close-section ()
-  "Fill the ***** trade close subsection of the current options trade."
   (let ((data (my/prompt-options-close-data)))
     (my/update-trade-close-field "date" (alist-get 'date data))
     (my/update-trade-close-field "quantity" (alist-get 'quantity data))
     (my/update-trade-close-field "price" (alist-get 'price data))
     (my/update-trade-close-field "exp" (alist-get 'exp data))
     (my/update-trade-close-field "strike" (alist-get 'strike data))))
+
+(defun my/normalize-close-data (close-data)
+  (let ((chunks '())
+        (current '()))
+    
+    (dolist (item close-data)
+      ;; if current is non-empty and we see a new :date, start a new chunk
+      (when (and current (eq (car item) :date))
+        (push (nreverse current) chunks)
+        (setq current '()))
+      (push item current))
+    
+    ;; push the last chunk
+    (when current
+      (push (nreverse current) chunks))
+    
+    (let* ((chunks (nreverse chunks))
+           (final (nth 0 chunks))
+           (tp1   (nth 1 chunks)))
+      `((:final . ,(and final (list final)))
+        (:tp1   . ,(and tp1 (list tp1)))))))
 
 ;; Main Interactive Functions 
 (defun my/extract-trade-data-clean (&optional exclude-sections date-pos)
@@ -904,7 +908,7 @@ Automatically includes the current date and reuses strike/exp from fill."
       (setq data (append (my/extract-properties-data) data)))
 
     ;; 4) sections 
-    (setq data (append (my/extract-sections-data start-pos trade-end exclude-sections)
+    (setq data (append (my/extract-sections-data exclude-sections start-pos trade-end)
                        data))
 
     (setq data (nreverse data))
