@@ -885,6 +885,26 @@ If HEADING-POS is nil, use the current heading."
       `((:final . ,(and final (list final)))
         (:tp1   . ,(and tp1 (list tp1)))))))
 
+;; calculate p&l
+(defun my/calc-open-value (price quantity trade-type)
+  (let* ((price (if (stringp price) (string-to-number price) price))
+         (qty  (if (stringp quantity)   (string-to-number quantity)   quantity))
+         (mult (if (string= trade-type "options") 100 1)))
+    (* price qty mult)))
+
+(defun my/has-tp1-p (close-sections)
+  (let ((tp1 (alist-get :tp1 close-sections)))
+    (and tp1 (listp tp1) (> (length tp1) 0))))
+
+(defun my/get-tp1-values (close-sections section-key)
+  (let* ((section (alist-get section-key close-sections))
+         (block    (car section)))  
+    (list :price    (alist-get :price block)
+          :quantity (alist-get :quantity block))))
+
+(defun my/format-money (number)
+  (format "%.2f" number))
+
 ;; Main Interactive Functions 
 (defun my/extract-trade-data-clean (&optional exclude-sections date-pos)
   (interactive)
@@ -935,9 +955,7 @@ If HEADING-POS is nil, use the current heading."
           (my/insert-trade-template-in-trades-file ticker trade-text)
           (message "%s trade template created for %s" trade-type ticker))))))
 
-(defun my/orchestrate-trade-open ()
-  "Orchestrator (open trade): prompt for INIT, generate trade-id, and write the property drawer.
-Call this while inside the trade's *** date heading."
+(defun my/orchestrate-trade-open () 
   ;; Step 1: Prompt for INIT and create the property drawer
   (interactive)
   (let* ((trade-data (my/extract-trade-data))
@@ -999,7 +1017,7 @@ Call this while inside the trade's *** date heading."
           (my/delete-trade-from-calculate-table
            my-trading-calculations-file "Open/Stocks" trade-id))
 
-        ;; Options → both *Open/Options and *write-manage-options
+        ;; Options → both *Open/Options and *Manage
         ((string= type "options")
           (my/delete-trade-from-calculate-table
            my-trading-calculations-file "Open/Options" trade-id)
