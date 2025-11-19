@@ -92,6 +92,10 @@ Returns the end position."
   "Return today's date as a string in MM/DD/YY format."
   (format-time-string "%m/%d/%y"))
 
+(defun my/normalize-single-block (block)
+  (when block
+    (list block)))
+
 ;; find Table 
 (defun my/find-table-in-section (heading-path file-name)
   "Return the point at the beginning of the first table under HEADING-PATH in FILE-NAME."
@@ -864,6 +868,9 @@ If HEADING-POS is nil, use the current heading."
     (my/update-trade-close-field "exp" (alist-get 'exp data))
     (my/update-trade-close-field "strike" (alist-get 'strike data))))
 
+(defun my/normalize-open-data (open-data)
+  `((:open . ,(my/normalize-single-block open-data))))
+
 (defun my/normalize-close-data (close-data)
   (let ((chunks '())
         (current '()))
@@ -896,7 +903,7 @@ If HEADING-POS is nil, use the current heading."
   (let ((tp1 (alist-get :tp1 close-sections)))
     (and tp1 (listp tp1) (> (length tp1) 0))))
 
-(defun my/get-tp1-values (close-sections section-key)
+(defun my/get-price-and-quantity (close-sections section-key)
   (let* ((section (alist-get section-key close-sections))
          (block    (car section)))  
     (list :price    (alist-get :price block)
