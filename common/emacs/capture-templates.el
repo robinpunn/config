@@ -892,8 +892,50 @@ If HEADING-POS is nil, use the current heading."
       `((:final . ,(and final (list final)))
         (:tp1   . ,(and tp1 (list tp1)))))))
 
+(defun my/normalize-section (sections section)
+  (pcase section
+    (:open  (my/normalize-open-data sections))
+    (:close (my/normalize-close-data sections))
+    (_ (error "Unknown section keyword: %S" section))))
+
+(defun my/get-value-blocks (normalized section)
+  (pcase section
+    (:open
+     ;; normalized = ((:open (block)))
+     (let* ((blk (alist-get :open normalized))
+            (values (my/get-price-and-quantity normalized :open)))
+       (list values)))
+
+    (:close
+     (let* ((final  (alist-get :final normalized))
+            (tp1    (alist-get :tp1 normalized))
+            (blocks '()))
+        (when (and tp1 (listp tp1) (> (length tp1) 0))
+         (push (my/get-price-and-quantity normalized :tp1) blocks))
+        (when final
+         (push (my/get-price-and-quantity normalized :final) blocks))
+      (nreverse blocks)))
+    (_ (error "Unknown section: %S" section))))
+
+(defun my/get-value-block (normalized section which)
+  (let ((blocks (my/get-value-blocks normalized section)))
+    (pcase which
+      (:open
+       (car blocks))
+
+      (:tp1
+       (when (my/has-tp1-p normalized)
+         (car blocks)))  
+
+      (:final
+       (if (my/has-tp1-p normalized)
+           (nth 1 blocks)  
+         (car blocks)))    
+
+      (_ (error "Unknown block selector: %S" which)))))
+
 ;; calculate p&l
-(defun my/calc-open-value (price quantity trade-type)
+(defun my/calc-value (price quantity trade-type)
   (let* ((price (if (stringp price) (string-to-number price) price))
          (qty  (if (stringp quantity)   (string-to-number quantity)   quantity))
          (mult (if (string= trade-type "options") 100 1)))
@@ -911,6 +953,31 @@ If HEADING-POS is nil, use the current heading."
 
 (defun my/format-money (number)
   (format "%.2f" number))
+
+(defun my/get-open-block ()
+  (let ((norm (my/normalize-section
+               (my/extract-sections-data '("close" "lessons" "opening indicators"))
+               :open)))
+    (my/get-value-block norm :open :open)))
+
+(defun my/get-final-block ()
+  (let ((norm (my/normalize-section
+               (my/extract-sections-data '("fill" "lessons" "opening indicators"))
+               :close)))
+    (my/get-value-block norm :close :final)))
+
+(defun my/get-tp1-block ()
+  (let ((norm (my/normalize-section
+               (my/extract-sections-data '("fill" "lessons" "opening indicators"))
+               :close)))
+    (my/get-value-block norm :close :tp1)))
+
+(defun my/calc-value-block (block trade-type)
+  (if block
+      (let ((price (plist-get block :price))
+            (qty   (plist-get block :quantity)))
+        (my/calc-value price qty trade-type))
+    0))
 
 ;; Main Interactive Functions 
 (defun my/extract-trade-data-clean (&optional exclude-sections date-pos)
