@@ -20,26 +20,30 @@
   :type 'file
   :group 'my-trading)
 
+(defconst my/prop-open-value  
+  "OPEN_VALUE")
+
+(defconst my/prop-tp1-value   
+  "TP1_VALUE")
+
+(defconst my/prop-final-value 
+  "TRADE_CLOSE")
+
+(defconst my/prop-pnl         
+  "PNL")
+
 ;; Generic Utility Functions
 (defmacro my/with-trading-file (file-var &rest body)
-  "Execute BODY with FILE-VAR buffer current, saving afterwards."
   `(with-current-buffer (find-file-noselect ,file-var)
      (prog1 (progn ,@body)
        (save-buffer))))
 
 (defun my/find-buffer-for-filename (file-name)
-  "Return the buffer visiting `file-name`.
-If it isn't already open, open it."
   (or (find-buffer-visiting file-name)
       (find-file-noselect file-name)))
 
 (defun my/find-org-heading (level text &optional direction limit)
-  "Find an org heading of LEVEL with TEXT content.
-LEVEL should be 1 for *, 2 for **, 3 for ***, etc.
-DIRECTION can be 'backward or 'forward (default forward).
-LIMIT is the search boundary (nil for no limit).
-Returns the position of the heading or nil if not found."
-  (let* ((stars (format "\\*\\{%d\\}" level))           ; exact count of stars
+  (let* ((stars (format "\\*\\{%d\\}" level))           
          (name-part (if text (regexp-quote text) "\\(.*\\)"))
          (pattern (format "^%s %s" stars name-part))
          (search-func (if (eq direction 'backward) 're-search-backward 're-search-forward)))
@@ -954,6 +958,9 @@ If HEADING-POS is nil, use the current heading."
 (defun my/format-money (number)
   (format "%.2f" number))
 
+(defun my/read-money (prop)
+  (string-to-number (my/read-trade-property-value prop)))
+
 (defun my/get-open-block ()
   (let ((norm (my/normalize-section
                (my/extract-sections-data '("close" "lessons" "opening indicators"))
@@ -978,6 +985,12 @@ If HEADING-POS is nil, use the current heading."
             (qty   (plist-get block :quantity)))
         (my/calc-value price qty trade-type))
     0))
+
+(defun my/calc-trade-pnl ()
+  (let ((open  (my/read-money my/prop-open-value))
+        (tp1   (my/read-money my/prop-tp1-value))
+        (close (my/read-money my/prop-final-value)))
+    (- (+ tp1 close) open)))
 
 ;; Main Interactive Functions 
 (defun my/extract-trade-data-clean (&optional exclude-sections date-pos)
@@ -1080,6 +1093,26 @@ If HEADING-POS is nil, use the current heading."
 
       ;; Step 2: Update property drawer
       (my/close-trade-property-drawer)
+
+      (my/add-new-property
+	 my/prop-open-value
+	 (my/format-money
+	  (my/calc-value-block (my/get-open-value) type)))
+
+      (my/add-new-property
+	 my/prop-tp1-value 
+	 (my/format-money
+	  (my/calc-value-block (my/get-tp1-value) type)))
+
+      (my/add-new-property
+	 my/prop-final-value 
+	 (my/format-money
+	  (my/calc-value-block (my/get-final-value) type)))
+
+      (my/add-new-property
+	 my/prop-pnl
+	 (my/format-money
+	  (my/calc-trade-pnl)))
 
       ;; Step 3: Move trade from Open to Watch in trades.org
       (my/move-trade-open-to-watch)
