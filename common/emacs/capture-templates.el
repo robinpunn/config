@@ -33,6 +33,7 @@
   "PNL")
 
 ;; Generic Utility Functions
+;;;; buffers
 (defmacro my/with-trading-file (file-var &rest body)
   `(with-current-buffer (find-file-noselect ,file-var)
      (prog1 (progn ,@body)
@@ -42,6 +43,7 @@
   (or (find-buffer-visiting file-name)
       (find-file-noselect file-name)))
 
+;;;; headings
 (defun my/find-org-heading (level text &optional direction limit)
   (let* ((stars (format "\\*\\{%d\\}" level))           
          (name-part (if text (regexp-quote text) "\\(.*\\)"))
@@ -52,8 +54,6 @@
         (line-beginning-position)))))
 
 (defun my/get-org-heading-content (level &optional direction)
-  "Get the content text of an org heading at LEVEL.
-DIRECTION can be 'backward or 'forward (default backward for context)."
   (let* ((stars (format "\\*\\{%d\\}" level))
          (pattern (format "^%s \\(.*\\)$" stars))
          (search-func (if (eq direction 'forward) 're-search-forward 're-search-backward)))
@@ -92,17 +92,80 @@ Returns the end position."
             pos
           (error "Not inside a trade entry (no *** date heading found)")))))
 
+(defun my/insert-heading-at-point (level name)
+  (let ((stars (make-string (max 1 level) ?*))
+        (start-pos nil))
+    ;; Ensure we are at a line boundary for cleaner insertion.
+    (unless (bolp)
+      (newline))
+    (setq start-pos (point))
+    (insert (format "%s %s\n" stars name))
+    ;; Return beginning of inserted heading line
+    (goto-char start-pos)
+    start-pos))
+
+(defun my/find-or-create-heading (level text)
+  (goto-char (point-min))
+  (let ((heading-point (my/find-org-heading level text)))
+    (unless heading-point
+      (goto-char (point-max))
+      (setq heading-point (my/insert-heading-at-point level text)))
+    (goto-char heading-point)))
+
+;;;; get date and year
 (defun my/get-current-date ()
   "Return today's date as a string in MM/DD/YY format."
   (format-time-string "%m/%d/%y"))
 
-(defun my/normalize-single-block (block)
-  (when block
-    (list block)))
+(defun my/get-trade-date-string ()
+  (let ((heading (my/get-org-heading-content 3)))
+    (when heading
+      (substring-no-properties heading))))
 
-;; find Table 
+(defun my/parse-trade-date (date-str)
+  (when (string-match "\\`\\([0-9][0-9]\\)/\\([0-9][0-9]\\)/\\([0-9][0-9]\\)\\'" date-str)
+    (let ((month (match-string 1 date-str))
+          (day   (match-string 2 date-str))
+          (year (match-string 3 date-str)))
+      `((:month . ,month)
+        (:day . ,day)
+        (:year . ,year)))))
+
+(defun my/get-month-from-trade-heading (date-str)
+  (let ((date-alist (my/parse-trade-date date-str)))
+    (alist-get :month date-alist)))
+
+(defun my/month-number-to-name (month-str)
+  (let ((month-num (string-to-number month-str)))
+    (if (and (>= month-num 1) (<= month-num 12))
+        (calendar-month-name month-num)
+      (error "Invalid month string: %s" month-str))))
+
+(defun my/get-year-from-trade-heading (date-str)
+  (let ((date-alist (my/parse-trade-date date-str)))
+    (alist-get :year date-alist)))
+
+(defun my/expand-year (yy)
+  (format "20%s" yy))
+
+(defun my/find-or-create-year-month (year month)
+  (my/with-trading-file my-summary-file
+    (let ((year-point (my/find-org-heading 1 year)))
+      (unless year-point
+        (goto-char (point-max))
+        (setq year-point (my/insert-heading-at-point 1 year)))
+      (goto-char year-point)
+
+      (let ((month-point (my/find-org-heading 2 month)))
+        (unless month-point
+          (setq month-point (my/insert-heading-at-point 2 month)))
+        (goto-char month-point)
+        (forward-line 1) 
+        (point)))))
+
+;; tables
+;;;; find Table 
 (defun my/find-table-in-section (heading-path file-name)
-  "Return the point at the beginning of the first table under HEADING-PATH in FILE-NAME."
   (let ((buf (my/find-buffer-for-filename file-name)))
     (with-current-buffer buf
       (my/goto-heading heading-path file-name)
@@ -113,7 +176,6 @@ Returns the end position."
         (point)))))
 
 (defun my/get-table-end-position (heading-path file-name)
-  "Return the point just after the first table under HEADING-PATH in FILE-NAME."
   (let ((buf (my/find-buffer-for-filename file-name)))
     (with-current-buffer buf
       (my/goto-heading heading-path file-name)
@@ -126,20 +188,15 @@ Returns the end position."
         (point)))))
 
 (defun my/get-table-bounds (section file)
-  "Return (START END) buffer positions of the first table in SECTION of FILE.
-END is the first line *after* the table."
   (let ((start (my/find-table-in-section section file))
         (end   (my/get-table-end-position section file)))
     (list start end)))
 
 (defun my/get-table-header ()
-  "Return the header row of the current org table as a list of strings."
   (let ((table (org-table-to-lisp)))
     (car table)))
 
 (defun my/normalize-table-header (header-row)
-  "Convert HEADER-ROW (a list of strings) into a list of keywords.
-Downcases, trims, and replaces non-alphanumerics with underscores."
   (mapcar (lambda (col)
             (let* ((name (downcase (string-trim col)))
                    (name (replace-regexp-in-string "[^a-z0-9]+" "_" name)))
@@ -147,17 +204,13 @@ Downcases, trims, and replaces non-alphanumerics with underscores."
           header-row))
 
 (defun my/get-table-schema (heading-path file-name)
-  "Return a schema (list of keywords) from the header row of the
-table under HEADING-PATH in FILE-NAME."
   (let ((buf (my/find-buffer-for-filename file-name)))
     (with-current-buffer buf
       (goto-char (my/find-table-in-section heading-path file-name))
       (my/normalize-table-header (my/get-table-header)))))
 
-;; Write to table 
+;;;; Write to table 
 (defun my/build-open-options-row (data schema)
-  "Build a row for Open/Options table from DATA, respecting SCHEMA.
-Fills id, type, init, atr, risk, delta, premium. Leaves other fields blank."
   (mapcar (lambda (col)
             (pcase col
               (:id     (alist-get :trade_id data))
@@ -219,28 +272,7 @@ Direction (:type) is always quoted, numbers are raw, nil is empty."
              "|\n"))
     (org-table-align)))
 
-(defun my/write-open-options (data &optional file-name)
-  "Append DATA as a new row to the Open/Options table."
-  (let* ((file (or file-name my-trading-calculations-file))
-         (schema (my/get-table-schema "Open/Options" file))
-         (row (my/build-open-options-row data schema)))
-    (my/write-row-to-table row "Open/Options" file schema)))
-
-(defun my/write-manage-options (data &optional file-name)
-  "Append DATA as a new row to the Manage table."
-  (let* ((file (or file-name my-trading-calculations-file))
-         (schema (my/get-table-schema "Manage" file))
-         (row (my/build-manage-options-row data schema)))
-  (my/write-row-to-table row "Manage" file schema)))
-
-(defun my/write-open-stocks (data &optional file-name)
-  "Append DATA as a new row to the Open/Stocks table."
-  (let* ((file (or file-name my-trading-calculations-file))
-         (schema (my/get-table-schema "Open/Stocks" file))
-         (row (my/build-open-stocks-row data schema)))
-    (my/write-row-to-table row "Open/Stocks" file schema)))
-
-;; Remove row from table
+;;;; Remove row from table
 (defun my/find-row-by-trade-id (trade-id)
   (save-excursion
     ;; Ensure we start in the table
@@ -376,6 +408,16 @@ Returns list of (:keyword . value) cons cells."
           (push (cons k (my/clean-extracted-value (cdr p))) data))))
     (nreverse data)))
 
+(defun my/create-property-drawer-at-date (date-pos trade-id type-value direction)
+  (let* ((type-info (my/parse-trade-type type-value))
+         (properties `(("TRADE_ID" . ,trade-id)
+                      ("TYPE" . ,(car type-info))
+                      ("DIRECTION" . ,direction)
+                      ("STATUS" . "open"))))
+    (save-excursion
+      (goto-char date-pos)
+      (my/write-property-drawer properties))))
+
 ;; Data Processing Utilities
 (defun my/clean-table-value (value)
   "Clean a table value by trimming and removing quotes."
@@ -491,17 +533,6 @@ Returns an alist with ticker, type info, and position."
         (insert "\n"))
       (insert ticker-text)
       (unless (bolp) (insert "\n")))))
-
-(defun my/create-property-drawer-at-date (date-pos trade-id type-value direction)
-  "Create a property drawer after the date heading at the given position."
-  (let* ((type-info (my/parse-trade-type type-value))
-         (properties `(("TRADE_ID" . ,trade-id)
-                      ("TYPE" . ,(car type-info))
-                      ("DIRECTION" . ,direction)
-                      ("STATUS" . "open"))))
-    (save-excursion
-      (goto-char date-pos)
-      (my/write-property-drawer properties))))
 
 (defun my/remove-type-line (type-line-pos)
   "Remove the type line at the given position."
@@ -805,6 +836,27 @@ If HEADING-POS is nil, use the current heading."
           (push (cons k (cdr p)) data)))
       (nreverse data))))
 
+(defun my/write-open-options (data &optional file-name)
+  "Append DATA as a new row to the Open/Options table."
+  (let* ((file (or file-name my-trading-calculations-file))
+         (schema (my/get-table-schema "Open/Options" file))
+         (row (my/build-open-options-row data schema)))
+    (my/write-row-to-table row "Open/Options" file schema)))
+
+(defun my/write-manage-options (data &optional file-name)
+  "Append DATA as a new row to the Manage table."
+  (let* ((file (or file-name my-trading-calculations-file))
+         (schema (my/get-table-schema "Manage" file))
+         (row (my/build-manage-options-row data schema)))
+  (my/write-row-to-table row "Manage" file schema)))
+
+(defun my/write-open-stocks (data &optional file-name)
+  "Append DATA as a new row to the Open/Stocks table."
+  (let* ((file (or file-name my-trading-calculations-file))
+         (schema (my/get-table-schema "Open/Stocks" file))
+         (row (my/build-open-stocks-row data schema)))
+    (my/write-row-to-table row "Open/Stocks" file schema)))
+
 ;; trade close in trades.org
 (defun my/move-trade-open-to-watch ()
   "Move the current trade's ticker from Watch section to Open section in trades.org."
@@ -902,6 +954,10 @@ If HEADING-POS is nil, use the current heading."
     (:close (my/normalize-close-data sections))
     (_ (error "Unknown section keyword: %S" section))))
 
+(defun my/normalize-single-block (block)
+  (when block
+    (list block)))
+
 (defun my/get-value-blocks (normalized section)
   (pcase section
     (:open
@@ -991,6 +1047,22 @@ If HEADING-POS is nil, use the current heading."
         (tp1   (my/read-money my/prop-tp1-value))
         (close (my/read-money my/prop-final-value)))
     (- (+ tp1 close) open)))
+
+;; move info to summary.org
+(defun my/ensure-year-and-month (year month)
+  (my/with-trading-file my-trading-summary-file
+    (goto-char (point-min))
+    (let ((year-point (my/find-org-heading 1 year)))
+      (unless year-point
+        (goto-char (point-max))
+        (setq year-point (my/insert-heading-at-point 1 year)))
+      (goto-char year-point)
+      (let ((subtree-end (save-excursion (org-end-of-subtree t))))
+        (let ((month-point (my/find-org-heading 2 month nil subtree-end)))
+          (unless month-point
+            (goto-char subtree-end)
+            (setq month-point (my/insert-heading-at-point 2 month)))
+          (goto-char month-point))))))
 
 ;; Main Interactive Functions 
 (defun my/extract-trade-data-clean (&optional exclude-sections date-pos)
