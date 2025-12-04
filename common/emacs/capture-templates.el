@@ -1,4 +1,4 @@
-;;; Trading Journal
+; Trading Journal
 
 ;; Custom Variables
 (defgroup my-trading nil
@@ -223,7 +223,6 @@
     (forward-line 1))
   (point))
 
-
 ;;;; Write to table 
 (defun my/insert-table-row-at-point (row)
   (insert (concat "| " (mapconcat #'identity row " | ") " |\n"))
@@ -331,10 +330,31 @@ Direction (:type) is always quoted, numbers are raw, nil is empty."
 (defun my/find-property-drawer-in-region (beg end)
   (save-excursion
     (goto-char beg)
+    (when (re-search-forward "^:PROPERTIES:$" end t)
+      (let ((pos (match-beginning 0)))
+        (save-excursion
+          (goto-char pos)
+          (when (= (current-column) 0)
+            pos))))))
+
+(defun my/find-property-drawer-in-regionOG (beg end)
+  (save-excursion
+    (goto-char beg)
     (when (re-search-forward "^:PROPERTIES:" end t)
       (match-beginning 0))))
 
 (defun my/get-property-drawer-end-in-region (drawer-start subtree-end)
+  (when drawer-start
+    (save-excursion
+      (goto-char drawer-start)
+      (when (re-search-forward "^:END:$" subtree-end t)
+        (let ((pos (match-beginning 0)))
+          (save-excursion
+            (goto-char pos)
+            (when (= (current-column) 0)
+              pos)))))))
+
+(defun my/get-property-drawer-end-in-regionOG (drawer-start subtree-end)
   (when drawer-start
     (save-excursion
       (goto-char drawer-start)
@@ -1175,27 +1195,25 @@ If HEADING-POS is nil, use the current heading."
           (raw-year   . ,year-str))))))
 
 (defun my/ensure-year-and-month (year month)
-  (my/with-trading-file my-trading-summary-file
-    (goto-char (point-min))
-    (let ((year-point (my/find-org-heading 1 year)))
-      (unless year-point
-        (goto-char (point-max))
-        (setq year-point (my/insert-heading-at-point 1 year)))
-      (goto-char year-point)
-      (let ((subtree-end (save-excursion (org-end-of-subtree t))))
-        (let ((month-point (my/find-org-heading 2 month nil subtree-end)))
-          (unless month-point
-            (goto-char subtree-end)
-            (setq month-point (my/insert-heading-at-point 2 month)))
-          (goto-char month-point))))))
+  (goto-char (point-min))
+  (let ((year-point (my/find-org-heading 1 year)))
+    (unless year-point
+      (goto-char (point-max))
+      (setq year-point (my/insert-heading-at-point 1 year)))
+    (goto-char year-point)
+    (let ((subtree-end (save-excursion (org-end-of-subtree t))))
+      (let ((month-point (my/find-org-heading 2 month nil subtree-end)))
+        (unless month-point
+          (goto-char subtree-end)
+          (setq month-point (my/insert-heading-at-point 2 month)))
+        (goto-char month-point)))))
 
-(defun my/create-month-property-drawer (month-pos initial-pnl)
+(defun my/create-p&l-drawer (pos initial-pnl)
   (save-excursion
-    (goto-char month-pos)
+    (goto-char pos)
     (my/write-property-drawer `(("P&L" . ,(number-to-string initial-pnl))))))
 
-(defun my/update-month-pnl (year month trade-pnl)
-  (my/ensure-year-and-month year month)
+(defun my/update-month-pnl (trade-pnl)
   (let* ((month-pos (point))
          (month-beg month-pos)
          (month-end (save-excursion
@@ -1219,7 +1237,43 @@ If HEADING-POS is nil, use the current heading."
            drawer-start
            drawer-end))
       
-      (my/create-month-property-drawer month-pos trade-pnl))))
+      (my/create-p&l-drawer month-pos trade-pnl))))
+
+(defun my/update-year-pnl (trade-pnl)
+  (let* ((year-pos (point))
+         (year-beg year-pos)
+         (year-end (save-excursion
+                     (goto-char year-beg)
+                     (forward-line 4) 
+                     (point)))
+         (drawer-start (my/find-property-drawer-in-region year-beg year-end))
+         (drawer-end   (my/get-property-drawer-end-in-region drawer-start year-end)))
+    (if (and drawer-start drawer-end)
+        (let* ((existing-pnl-str (my/get-property-value-in-region
+                                  "P&L"
+                                  drawer-start
+                                  drawer-end))
+               (existing-pnl (if existing-pnl-str
+                                 (string-to-number existing-pnl-str)
+                               0))
+               (new-total (+ existing-pnl trade-pnl)))
+          (my/set-property-value-in-region
+           "P&L"
+           (number-to-string new-total)
+           drawer-start
+           drawer-end))
+      (my/create-p&l-drawer year-pos trade-pnl))))
+
+(defun my/update-year-pnlAPI (trade-pnl)
+  (save-excursion
+    (org-back-to-heading t)
+    (beginning-of-line)
+    (let* ((existing-pnl-str (org-entry-get nil "P&L"))
+           (existing-pnl (if existing-pnl-str
+                             (string-to-number existing-pnl-str)
+                           0))
+           (new-total (+ existing-pnl trade-pnl)))
+      (org-entry-put nil "P&L" (number-to-string new-total)))))
 
 (defun my/get-table-insert-point ()
   (or (my/find-table-in-subtree)
@@ -1259,21 +1313,18 @@ If HEADING-POS is nil, use the current heading."
   (let* ((trade-row  (alist-get 'row trade-metadata))
          (full-year  (alist-get 'year trade-metadata))
          (month-name (alist-get 'month trade-metadata))
-         (month-pnl  (my/calc-trade-pnl)))
+         (pnl  (my/calc-trade-pnl)))
     
-    (with-current-buffer (find-file-noselect my-trading-summary-file)
-      
-      (my/ensure-year-and-month full-year month-name)
-      
+    (with-current-buffer (find-file-noselect my-trading-summary-file)      
+      (my/ensure-year-and-month full-year month-name) 
       (let ((month-beg (point))
             (month-end (save-excursion
                          (goto-char (point))
-                         (org-end-of-subtree t))))
-        
-        (my/update-month-pnl full-year month-name month-pnl)
-        
-        (my/ensure-month-table-and-append-row trade-row month-beg month-end)))))
-
+                         (org-end-of-subtree t)))) 
+        (my/update-month-pnl pnl) 
+        (my/ensure-month-table-and-append-row trade-row month-beg month-end))
+      (org-up-heading-safe)
+      (my/update-year-pnl pnl))))
 
 ;; Main Interactive Functions 
 (defun my/extract-trade-data-clean (&optional exclude-sections date-pos)
@@ -1393,37 +1444,18 @@ If HEADING-POS is nil, use the current heading."
       (my/add-new-property
        my/prop-pnl
        (my/format-money (my/calc-trade-pnl)))
-
-      ;; Extract trade row BEFORE leaving trades.org
-      (let ((trade-row (my/build-trade-row))
-      	   date-str month-str year-str month-name full-year)
-  	(setq date-str   (my/get-trade-date-string))
-  	(setq month-str  (my/get-month-from-trade-heading date-str))
-  	(setq year-str   (my/get-year-from-trade-heading date-str))
-  	(setq month-name (my/month-number-to-name month-str))
-  	(setq full-year  (my/expand-year year-str))
-
-        ;; Step 3: Move trade from Open → Watch in trades.org
-        (my/move-trade-open-to-watch)
-
-        ;; Step 4: Update summary.org (month)
-        (my/ensure-year-and-month full-year month-name)
-        (let* ((month-beg (point))
-               (month-end (save-excursion (goto-char month-beg)
-                                          (org-end-of-subtree t))))
-          ;; Update MONTH property drawer P&L
-          (my/update-month-pnl full-year month-name (my/calc-trade-pnl))
-
-          ;; Append row (create table if needed)
-          (my/ensure-month-table-and-append-row trade-row month-beg month-end)
-
-          ;; FINAL STEP (after confirmation): update YEAR drawer
-          ;; This will go up one heading and update/create drawer for the year
-          ;; Implementation pending, will use org-up-heading-safe 1 internally
-          )
 	
-	;; Step 5: Delete corresponding rows from calculate.org tables
-        (cond
+      ;; Step 3: extract trade data to pass to summary.org
+      (setq trade-metadata (my/get-trade-metadata))
+
+      ;; Step 4: Move trade from Open → Watch in trades.org
+      (my/move-trade-open-to-watch)
+
+      ;; Step 5: Update summary.org month/year
+      (my/update-summary-with-trade trade-metadata)
+      
+      ;; Step 6: Delete corresponding rows from calculate.org tables
+      (cond
          ((string= type "stock")
           (my/delete-trade-from-calculate-table
            my-trading-calculations-file "Open/Stocks" trade-id))
@@ -1432,7 +1464,6 @@ If HEADING-POS is nil, use the current heading."
            my-trading-calculations-file "Open/Options" trade-id)
           (my/delete-trade-from-calculate-table
            my-trading-calculations-file "Manage" trade-id)))
-
-        ))))
+        )))
 
 (provide 'my-trading-workflow)
