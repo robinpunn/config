@@ -5,17 +5,17 @@
   "Trading journal workflow customization."
   :group 'convenience)
 
-(defcustom my-trading-trades-file "~/Documents/Practice/trades.org"
+(defcustom my-trading-trades-file "~/Documents/TradeBrain/trades.org"
   "Path to the trades.org file."
   :type 'file
   :group 'my-trading)
 
-(defcustom my-trading-calculations-file "~/Documents/Practice/calculate.org"
+(defcustom my-trading-calculations-file "~/Documents/TradeBrain/calculate.org"
   "Path to the calculate.org file."
   :type 'file
   :group 'my-trading)
 
-(defcustom my-trading-summary-file "~/Documents/Practice/summary.org"
+(defcustom my-trading-summary-file "~/Documents/TradeBrain/summary.org"
   "Path to the summary.org file."
   :type 'file
   :group 'my-trading)
@@ -456,8 +456,6 @@ Direction (:type) is always quoted, numbers are raw, nil is empty."
     (insert "\n:END:")))
 
 (defun my/extract-properties-data ()
-  "Extract all org properties from current heading as keyword alist.
-Returns list of (:keyword . value) cons cells."
   (let ((data '())
         (start-pos (my/find-current-trade-date-heading)))
     (save-excursion
@@ -754,7 +752,6 @@ Returns position after the heading."
 
 ;; Create trade
 (defun my/move-trade-watch-to-open ()
-  "Move the current trade's ticker from Watch section to Open section in trades.org."
   (let* ((date-pos (my/find-current-trade-date-heading))
          (ticker-pos (my/find-ticker-heading-position date-pos))
          (ticker-text (my/cut-entire-ticker-section ticker-pos)))
@@ -1399,18 +1396,18 @@ If HEADING-POS is nil, use the current heading."
      (my/fill-stock-section (my/prompt-stock-fill-data)))
     ((string= trade-type "options")
      (my/fill-options-section (my/prompt-options-fill-data))))
-
-  ;; Step 3: Move trade from Watch → Open
-  (my/move-trade-watch-to-open)
-  
-  ;; Step 4: Write to calculate.org
+ 
+  ;; Step 3: Write to calculate.org
   (let ((final-data (my/extract-trade-data-clean)))
     (cond
       ((string= trade-type "stock")
         (my/write-open-stocks final-data))
       ((string= trade-type "options")
         (my/write-open-options final-data)
-        (my/write-manage-options final-data))))))
+        (my/write-manage-options final-data))))
+  
+  ;; Step 4: Move trade from Watch → Open
+  (my/move-trade-watch-to-open)))
 
 (defun my/orchestrate-trade-close ()
   (interactive)
