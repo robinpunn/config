@@ -13,6 +13,10 @@ vim.keymap.set("n", "<C-b>", ":Lex<CR>", { noremap = true, silent = true, desc =
 vim.keymap.set("n", "<leader>b", ":Ex<CR>", { noremap = true, silent = true, desc = "Open netrw Ex" })
 vim.keymap.set("n", "<leader>B", ":Vex<CR>", { noremap = true, silent = true, desc = "Open netrw Vex" })
 
+-- buffer fast travel
+vim.keymap.set("n", "[b", ":bp<CR>", { noremap = true, silent = true, desc = "Go to previous buffer" })
+vim.keymap.set("n", "]b", ":bn<CR>", { noremap = true, silent = true, desc = "Go to next buffer" })
+
 -- tabs
 vim.keymap.set("n", "<leader>gT", ":tabmove -1<CR>", { noremap = true , desc = "Move tab left" })
 vim.keymap.set("n", "<leader>gt", ":tabmove +1<CR>", { noremap = true, desc= "Move tab right" })
