@@ -1,4 +1,14 @@
 ; Trading Journal
+;; use test files to fix bugs
+(defun my/trading-with-test-files (func)
+  "Execute FUNC with test trading files."
+  (let ((my-trading-trades-file "~/Documents/TradeBrain/test/trades.org")
+        (my-trading-calculations-file "~/Documents/TradeBrain/test/calculate.org")
+        (my-trading-summary-file "~/Documents/TradeBrain/test/summary.org"))
+    (funcall func)))
+
+;; Usage:
+;; (my-trading-with-test-files #'my-trading-calculate-whatever)
 
 ;; Custom Variables
 (defgroup my-trading nil
