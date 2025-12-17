@@ -1,15 +1,4 @@
 ; Trading Journal
-;; use test files to fix bugs
-(defun my/trading-with-test-files (func)
-  "Execute FUNC with test trading files."
-  (let ((my-trading-trades-file "~/Documents/TradeBrain/test/trades.org")
-        (my-trading-calculations-file "~/Documents/TradeBrain/test/calculate.org")
-        (my-trading-summary-file "~/Documents/TradeBrain/test/summary.org"))
-    (funcall func)))
-
-;; Usage:
-;; (my-trading-with-test-files #'my-trading-calculate-whatever)
-
 ;; Custom Variables
 (defgroup my-trading nil
   "Trading journal workflow customization."
@@ -1316,11 +1305,10 @@ If HEADING-POS is nil, use the current heading."
                       " |\n"))
       (org-table-align))))
 
-(defun my/update-summary-with-trade (trade-metadata)
+(defun my/update-summary-with-trade (trade-metadata p&l)
   (let* ((trade-row  (alist-get 'row trade-metadata))
          (full-year  (alist-get 'year trade-metadata))
-         (month-name (alist-get 'month trade-metadata))
-         (pnl  (my/calc-trade-pnl)))
+         (month-name (alist-get 'month trade-metadata)))
     
     (with-current-buffer (find-file-noselect my-trading-summary-file)      
       (my/ensure-year-and-month full-year month-name) 
@@ -1328,10 +1316,10 @@ If HEADING-POS is nil, use the current heading."
             (month-end (save-excursion
                          (goto-char (point))
                          (org-end-of-subtree t)))) 
-        (my/update-month-pnl pnl) 
+        (my/update-month-pnl p&l) 
         (my/ensure-month-table-and-append-row trade-row month-beg month-end))
       (org-up-heading-safe)
-      (my/update-year-pnl pnl))))
+      (my/update-year-pnl p&l))))
 
 ;; Main Interactive Functions 
 (defun my/extract-trade-data-clean (&optional exclude-sections date-pos)
@@ -1447,10 +1435,11 @@ If HEADING-POS is nil, use the current heading."
       (my/add-new-property
        my/prop-final-value
        (my/format-money (my/calc-value-block (my/get-final-block) type)))
-
+	
+      (setq p&l (my/calc-trade-pnl))
       (my/add-new-property
        my/prop-pnl
-       (my/format-money (my/calc-trade-pnl)))
+       (my/format-money p&l))
 	
       ;; Step 3: extract trade data to pass to summary.org
       (setq trade-metadata (my/get-trade-metadata))
@@ -1459,7 +1448,7 @@ If HEADING-POS is nil, use the current heading."
       (my/move-trade-open-to-watch)
 
       ;; Step 5: Update summary.org month/year
-      (my/update-summary-with-trade trade-metadata)
+      (my/update-summary-with-trade trade-metadata p&l)
       
       ;; Step 6: Delete corresponding rows from calculate.org tables
       (cond
