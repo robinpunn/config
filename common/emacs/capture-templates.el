@@ -123,6 +123,20 @@
       (setq heading-point (my/insert-heading-at-point level text)))
     (goto-char heading-point)))
 
+(defun my/find-trade-subsection (subsection-name heading-level)
+  (let ((date-pos (my/find-current-trade-date-heading))
+        (stars (make-string heading-level ?*))
+        subsection-pos)
+    (save-excursion
+      (goto-char date-pos)
+      (when (re-search-forward 
+             (format "^%s +%s\\>" stars (regexp-quote subsection-name))
+             (my/goto-heading-end 3) t)
+        (setq subsection-pos (line-beginning-position))))
+    (unless subsection-pos
+      (error "Could not find %s %s subsection in current trade" stars subsection-name))
+    subsection-pos))
+
 ;;;; get date and year
 (defun my/get-current-date ()
   "Return today's date as a string in MM/DD/YY format."
@@ -779,16 +793,7 @@ Returns position after the heading."
 
 ;; Trade Fill
 (defun my/find-fill-section ()
-  (let ((date-pos (my/find-current-trade-date-heading))
-        fill-pos)
-    (save-excursion
-      (goto-char date-pos)
-      ;; search forward for **** fill in the trade subtree
-      (when (re-search-forward "^\\*\\*\\*\\* fill" nil t)
-        (setq fill-pos (line-beginning-position))))
-    (unless fill-pos
-      (error "Could not find **** fill section in current trade"))
-    fill-pos))
+  (my/find-trade-subsection "fill" 4))
 
 (defun my/update-fill-field (field-name value)
   (let ((fill-pos (my/find-fill-section))
@@ -941,8 +946,58 @@ If HEADING-POS is nil, use the current heading."
     (my/write-row-to-table row "Open/Stocks" file schema)))
 
 ;; trade close in trades.org
+(defun my/update-trade-field (subsection-finder field-name value)
+  (let ((subsection-pos (funcall subsection-finder))
+        field-regex)
+    (save-excursion
+      (goto-char subsection-pos)
+      (setq field-regex (format "^\\-[ \t]*%s:?[ \t]*\\(.*\\)$"
+                                 (regexp-quote field-name)))
+      (if (re-search-forward field-regex (my/goto-heading-end 5) t)
+          (replace-match (format "- %s: %s" field-name value) t t)
+        (error "Could not find field '%s' in section" field-name)))))
+
+(defun my/prompt-stock-data (action)
+  (let* ((date (my/get-current-date))
+         (quantity (read-string (format "%s quantity: " action)))
+         (price (read-string (format "%s price: " action))))
+    `((date . ,date)
+      (quantity . ,quantity)
+      (price . ,price))))
+
+(defun my/prompt-options-data (action)
+  (let* ((data (my/extract-trade-data-clean))
+         (date (my/get-current-date))
+         (quantity (read-string (format "%s quantity: " action)))
+         (price (read-string (format "%s price: " action)))
+         (exp (alist-get :exp data))
+         (strike (alist-get :strike data)))
+    `((date . ,date)
+      (quantity . ,quantity)
+      (price . ,price)
+      (exp . ,exp)
+      (strike . ,strike))))
+
+;;;; take profit 1
+(defun my/find-trade-tp1-subsection ()
+  (my/find-trade-subsection "take profit 1" 5))
+
+(defun my/stock-tp1-section ()
+  (let ((data (my/prompt-stock-data "TP1")))
+    (my/update-trade-field #'my/find-trade-tp1-subsection "date" (alist-get 'date data))
+    (my/update-trade-field #'my/find-trade-tp1-subsection "quantity" (alist-get 'quantity data))
+    (my/update-trade-field #'my/find-trade-tp1-subsection "price" (alist-get 'price data))))
+
+(defun my/options-tp1-section ()
+  (let ((data (my/prompt-options-data "TP1")))
+    (my/update-trade-field #'my/find-trade-tp1-subsection "date" (alist-get 'date data))
+    (my/update-trade-field #'my/find-trade-tp1-subsection "quantity" (alist-get 'quantity data))
+    (my/update-trade-field #'my/find-trade-tp1-subsection "price" (alist-get 'price data))
+    (my/update-trade-field #'my/find-trade-tp1-subsection "exp" (alist-get 'exp data))
+    (my/update-trade-field #'my/find-trade-tp1-subsection "strike" (alist-get 'strike data))))
+
+;;;; trade close
 (defun my/move-trade-open-to-watch ()
-  "Move the current trade's ticker from Watch section to Open section in trades.org."
   (let* ((date-pos (my/find-current-trade-date-heading))
          (ticker-pos (my/find-ticker-heading-position date-pos))
          (ticker-text (my/cut-entire-ticker-section ticker-pos)))
@@ -950,16 +1005,7 @@ If HEADING-POS is nil, use the current heading."
     (message "Trade moved from Open to Watch")))
 
 (defun my/find-trade-close-subsection ()
-  (let ((date-pos (my/find-current-trade-date-heading))
-        close-pos)
-    (save-excursion
-      (goto-char date-pos)
-      ;; limit search to the trade subtree (end of level-3 heading)
-      (when (re-search-forward "^\\*\\*\\*\\*\\* +trade close\\>" (my/goto-heading-end 3) t)
-        (setq close-pos (line-beginning-position))))
-    (unless close-pos
-      (error "Could not find ***** trade close subsection in current trade"))
-    close-pos))
+  (my/find-trade-subsection "trade close" 5))
 
 (defun my/update-trade-close-field (field-name value)
   (let ((close-pos (my/find-trade-close-subsection))
@@ -972,40 +1018,19 @@ If HEADING-POS is nil, use the current heading."
           (replace-match (format "- %s: %s" field-name value) t t)
         (error "Could not find field '%s' in trade close section" field-name)))))
 
-(defun my/prompt-stock-close-data ()
-  (let* ((date (my/get-current-date))
-         (quantity (read-string "Close quantity: "))
-         (price (read-string "Close price: ")))
-    `((date . ,date)
-      (quantity . ,quantity)
-      (price . ,price))))
-
-(defun my/prompt-options-close-data ()
-  (let* ((data (my/extract-trade-data-clean))
-         (date (my/get-current-date))
-         (quantity (read-string "Close quantity: "))
-         (price (read-string "Close price: "))
-         (exp (alist-get :exp data))
-         (strike (alist-get :strike data)))
-    `((date . ,date)
-      (quantity . ,quantity)
-      (price . ,price)
-      (exp . ,exp)
-      (strike . ,strike))))
-
 (defun my/stock-close-section ()
-  (let ((data (my/prompt-stock-close-data)))
-    (my/update-trade-close-field "date" (alist-get 'date data))
-    (my/update-trade-close-field "quantity" (alist-get 'quantity data))
-    (my/update-trade-close-field "price" (alist-get 'price data))))
+  (let ((data (my/prompt-stock-data "Close")))
+    (my/update-trade-field #'my/find-trade-close-subsection "date" (alist-get 'date data))
+    (my/update-trade-field #'my/find-trade-close-subsection "quantity" (alist-get 'quantity data))
+    (my/update-trade-field #'my/find-trade-close-subsection "price" (alist-get 'price data))))
 
 (defun my/options-close-section ()
-  (let ((data (my/prompt-options-close-data)))
-    (my/update-trade-close-field "date" (alist-get 'date data))
-    (my/update-trade-close-field "quantity" (alist-get 'quantity data))
-    (my/update-trade-close-field "price" (alist-get 'price data))
-    (my/update-trade-close-field "exp" (alist-get 'exp data))
-    (my/update-trade-close-field "strike" (alist-get 'strike data))))
+  (let ((data (my/prompt-options-data "Close")))
+    (my/update-trade-field #'my/find-trade-close-subsection "date" (alist-get 'date data))
+    (my/update-trade-field #'my/find-trade-close-subsection "quantity" (alist-get 'quantity data))
+    (my/update-trade-field #'my/find-trade-close-subsection "price" (alist-get 'price data))
+    (my/update-trade-field #'my/find-trade-close-subsection "exp" (alist-get 'exp data))
+    (my/update-trade-field #'my/find-trade-close-subsection "strike" (alist-get 'strike data))))
 
 (defun my/normalize-open-data (open-data)
   `((:open . ,(my/normalize-single-block open-data))))
@@ -1406,6 +1431,18 @@ If HEADING-POS is nil, use the current heading."
   
   ;; Step 4: Move trade from Watch → Open
   (my/move-trade-watch-to-open)))
+
+(defun my/orchestrate-trade-tp1 ()
+  (interactive)
+  (save-excursion
+    (let* ((trade-data (my/extract-trade-data-clean))
+           (type (alist-get :type trade-data nil nil #'string=)))
+      
+      (cond
+       ((string= type "stock")
+        (my/stock-tp1-section))
+       ((string= type "options")
+        (my/options-tp1-section))))))
 
 (defun my/orchestrate-trade-close ()
   (interactive)
