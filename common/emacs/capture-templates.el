@@ -1229,7 +1229,7 @@ If HEADING-POS is nil, use the current heading."
                (new-total (+ existing-pnl trade-pnl)))
           (my/set-property-value-in-region
            "P&L"
-           (number-to-string new-total)
+           (my/format-money new-total)
            drawer-start
            drawer-end))
       
@@ -1255,7 +1255,7 @@ If HEADING-POS is nil, use the current heading."
                (new-total (+ existing-pnl trade-pnl)))
           (my/set-property-value-in-region
            "P&L"
-           (number-to-string new-total)
+           (my/format-money new-total)
            drawer-start
            drawer-end))
       (my/create-p&l-drawer year-pos trade-pnl))))
