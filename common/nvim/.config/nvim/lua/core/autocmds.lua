@@ -8,6 +8,15 @@ vim.api.nvim_create_autocmd("FileType", {
   end,
 })
 
+-- json folding
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = "json",
+  callback = function()
+    vim.wo.foldmethod = "indent"
+    vim.wo.foldlevel = 1  -- increase this number to unfold more levels
+  end,
+})
+
 -- line numbers for help
 vim.api.nvim_create_autocmd("FileType", {
   pattern = "help",
