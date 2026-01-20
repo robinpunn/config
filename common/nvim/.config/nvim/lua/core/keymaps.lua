@@ -28,5 +28,8 @@ vim.keymap.set("n", "<leader>qn", "<cmd>cnext<CR>",  { desc = "Quickfix next" })
 vim.keymap.set("n", "<leader>qp", "<cmd>cprev<CR>",  { desc = "Quickfix prev" })
 vim.keymap.set("n", "<leader>qz", "<cmd>cgetexpr []<CR>",  { desc = "Quickfix clear" })
 
+-- remap C-z (so i dont keep accidently closing nvim)
+vim.keymap.set("n", "<C-z>", "<cmd>u<CR>", { desc = "Undo" })
+
 -- spell check
 vim.keymap.set("n", "<leader>S", ":set spell!<CR>", { desc = "Toggle spell check" })

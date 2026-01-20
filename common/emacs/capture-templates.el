@@ -1007,17 +1007,6 @@ If HEADING-POS is nil, use the current heading."
 (defun my/find-trade-close-subsection ()
   (my/find-trade-subsection "trade close" 5))
 
-(defun my/update-trade-close-field (field-name value)
-  (let ((close-pos (my/find-trade-close-subsection))
-        field-regex)
-    (save-excursion
-      (goto-char close-pos)
-      (setq field-regex (format "^\\-[ \t]*%s:?[ \t]*\\(.*\\)$"
-                                 (regexp-quote field-name)))
-      (if (re-search-forward field-regex (my/goto-heading-end 5) t)
-          (replace-match (format "- %s: %s" field-name value) t t)
-        (error "Could not find field '%s' in trade close section" field-name)))))
-
 (defun my/stock-close-section ()
   (let ((data (my/prompt-stock-data "Close")))
     (my/update-trade-field #'my/find-trade-close-subsection "date" (alist-get 'date data))
