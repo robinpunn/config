@@ -1458,19 +1458,18 @@ If HEADING-POS is nil, use the current heading."
        my/prop-final-value
        (my/format-money (my/calc-value-block (my/get-final-block) type)))
 	
-      (setq p&l (my/calc-trade-pnl))
+      (let ((p&l (my/calc-trade-pnl))
+           ;; Step 3: extract trade data to pass to summary.org
+      	   (trade-metadata (my/get-trade-metadata)))
       (my/add-new-property
        my/prop-pnl
        (my/format-money p&l))
 	
-      ;; Step 3: extract trade data to pass to summary.org
-      (setq trade-metadata (my/get-trade-metadata))
-
       ;; Step 4: Move trade from Open → Watch in trades.org
       (my/move-trade-open-to-watch)
 
       ;; Step 5: Update summary.org month/year
-      (my/update-summary-with-trade trade-metadata p&l)
+      (my/update-summary-with-trade trade-metadata p&l))
       
       ;; Step 6: Delete corresponding rows from calculate.org tables
       (cond
