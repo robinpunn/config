@@ -809,11 +809,9 @@ Returns position after the heading."
   "Prompt user for stock fill details (quantity, price) and return as an alist.
 Automatically includes the trade date."
   (let* ((date (my/extract-trade-date))
-         (quantity (read-string "Quantity: "))
-         (price (read-string "Price: ")))
+         (quantity (read-string "Quantity: ")))
     `((date . ,date)
-      (quantity . ,quantity)
-      (price . ,price))))
+      (quantity . ,quantity))))
 
 (defun my/prompt-options-fill-data ()
   "Prompt user for options fill details (strike, exp, quantity, price).
@@ -829,12 +827,10 @@ Automatically includes the trade date. Returns an alist."
       (quantity . ,quantity)
       (price . ,price))))
 
-(defun my/fill-stock-section (data)
-  "Fill the **** fill section of the current trade with stock DATA.
-DATA should be an alist from `my/prompt-stock-fill-data`."
+(defun my/fill-stock-section (data init-price)
   (my/update-fill-field "date" (alist-get 'date data))
   (my/update-fill-field "quantity" (alist-get 'quantity data))
-  (my/update-fill-field "price" (alist-get 'price data)))
+  (my/update-fill-field "price" (init-price)))
 
 (defun my/fill-options-section (data)
   "Fill the **** fill section of the current trade with options DATA.
@@ -1386,8 +1382,8 @@ If HEADING-POS is nil, use the current heading."
           (message "%s trade template created for %s" trade-type ticker))))))
 
 (defun my/orchestrate-trade-open () 
-  ;; Step 1: Prompt for INIT and create the property drawer
   (interactive)
+  ;; Step 1: Prompt for INIT and create the property drawer
   (let* ((trade-data (my/extract-trade-data))
          (date-pos (cdr (assoc 'date-pos trade-data)))
          (type-line-pos (cdr (assoc 'type-pos trade-data)))
@@ -1405,7 +1401,7 @@ If HEADING-POS is nil, use the current heading."
   ;; Step 2: Enter trade fill information
   (cond
     ((string= trade-type "stock")
-     (my/fill-stock-section (my/prompt-stock-fill-data)))
+     (my/fill-stock-section (my/prompt-stock-fill-data) init-price))
     ((string= trade-type "options")
      (my/fill-options-section (my/prompt-options-fill-data))))
  
