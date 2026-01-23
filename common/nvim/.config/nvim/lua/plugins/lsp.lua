@@ -11,12 +11,17 @@ return {
     end
 
     local capabilities = require("cmp_nvim_lsp").default_capabilities()
-
-    -- Python
-    vim.lsp.config("pylsp", { 
-	    on_attach = on_attach, 
-	    capabilities = capabilities 
+    -- Python 
+    vim.lsp.config("basedpyright", { 
+      on_attach = on_attach, 
+      capabilities = capabilities 
     })
+
+    -- ruff (python linter) 
+    vim.lsp.config("ruff", { 
+      on_attach = on_attach, 
+      capabilities = capabilities 
+    }) 
 
     -- TS / JS
     vim.lsp.config("ts_ls", { 
@@ -44,7 +49,8 @@ return {
 
     -- Enable servers
     vim.lsp.enable({ 
-	    "pylsp", 
+	    "basedpyright", 
+      "ruff",
 	    "ts_ls", 
 	    "gopls", 
 	    "golangci_lint_ls", 
