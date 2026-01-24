@@ -830,7 +830,7 @@ Automatically includes the trade date. Returns an alist."
 (defun my/fill-stock-section (data init-price)
   (my/update-fill-field "date" (alist-get 'date data))
   (my/update-fill-field "quantity" (alist-get 'quantity data))
-  (my/update-fill-field "price" (init-price)))
+  (my/update-fill-field "price" init-price))
 
 (defun my/fill-options-section (data)
   "Fill the **** fill section of the current trade with options DATA.
