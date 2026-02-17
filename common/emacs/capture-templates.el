@@ -4,17 +4,17 @@
   "Trading journal workflow customization."
   :group 'convenience)
 
-(defcustom my-trading-trades-file "~/Documents/TradeBrain/trades.org"
+(defcustom my-trading-trades-file "~/Documents/trading_journal/trades.org"
   "Path to the trades.org file."
   :type 'file
   :group 'my-trading)
 
-(defcustom my-trading-calculations-file "~/Documents/TradeBrain/calculate.org"
+(defcustom my-trading-calculations-file "~/Documents/trading_journal/calculate.org"
   "Path to the calculate.org file."
   :type 'file
   :group 'my-trading)
 
-(defcustom my-trading-summary-file "~/Documents/TradeBrain/summary.org"
+(defcustom my-trading-summary-file "~/Documents/trading_journal/summary.org"
   "Path to the summary.org file."
   :type 'file
   :group 'my-trading)
