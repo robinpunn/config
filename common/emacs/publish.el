@@ -5,7 +5,7 @@
 (defvar my/blog-org-dir (expand-file-name "org/" my/blog-base-dir))
 (defvar my/blog-public-dir (expand-file-name "public/" my/blog-base-dir))
 (defvar my/blog-static-dir (expand-file-name "static/" my/blog-base-dir))
-(defvar my/blog-pi-path ("pi@192.168.0.33:/home/pi/blog/"))
+(defvar my/blog-pi-path "pi@192.168.0.33:/home/pi/blog/")
 
 (setq org-publish-project-alist
       `(
@@ -43,14 +43,14 @@
 
 (defun my/copy-from-notes()
   (interactive)
-  (let* (src (buffer-file-name))
+  (let* ((src (buffer-file-name))
     	(dest (expand-file-name (file-name-nondirectory src) my/blog-org-dir)))
     (unless src
       (user-error "Current buffer is not visiting a file"))
     (unless (file-directory-p my/blog-org-dir)
       (make-directory my/blog-org-dir t))
     (copy-file src dest t)
-    (message "Copied to blog: %s" (file-name-nondirectory src)))
+    (message "Copied to blog: %s" (file-name-nondirectory src))))
 
 (defun my/publish-post()
   (interactive)

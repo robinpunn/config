@@ -6,7 +6,10 @@
   (load custom-file))
 
 ;; load trading journal functions
-(load-file (expand-file-name "capture-templates.el" user-emacs-directory))
+(load-file (expand-file-name "trading-journal.el" user-emacs-directory))
 
 ;; load ui.el
-(load (expand-file-name "ui.el" user-emacs-directory) t)
+(load (expand-file-name "ui.el" user-emacs-directory))
+
+;; load publish.el
+(load (expand-file-name "publish.el" user-emacs-directory))
