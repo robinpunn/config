@@ -1,15 +1,12 @@
-;; set custom file to load Customize interface changes
+;; customize (theme)
 (setq custom-file "~/.emacs.d/custom.el")
+(load custom-file)
 
-;; load custom file if it exists
-(when (file-exists-p custom-file)
-  (load custom-file))
-
-;; load trading journal functions
-(load-file (expand-file-name "trading-journal.el" user-emacs-directory))
-
-;; load ui.el
+;; ui
 (load (expand-file-name "ui.el" user-emacs-directory))
 
-;; load publish.el
+;; blog
 (load (expand-file-name "publish.el" user-emacs-directory))
+
+;; trading journal
+(load (expand-file-name "trading-journal.el" user-emacs-directory))

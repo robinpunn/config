@@ -1,11 +1,12 @@
 (require 'org)
 (require 'ox-publish)
 
-(defvar my/blog-base-dir (expand-file-name "~/Documents/Blogs/"))
-(defvar my/blog-org-dir (expand-file-name "org/" my/blog-base-dir))
-(defvar my/blog-public-dir (expand-file-name "public/" my/blog-base-dir))
-(defvar my/blog-static-dir (expand-file-name "static/" my/blog-base-dir))
-(defvar my/blog-pi-path "pi@192.168.0.33:/home/pi/Blog/")
+(setq my/blog-base-dir (expand-file-name "~/Blog/"))
+(setq my/blog-org-dir (expand-file-name "org/" my/blog-base-dir))
+(setq my/blog-public-dir (expand-file-name "public/" my/blog-base-dir))
+(setq my/blog-static-dir (expand-file-name "static/" my/blog-base-dir))
+(setq my/blog-pi-path "pi@192.168.0.33:/home/pi/Blog/")
+(defvar my/blog-server-process nil)
 
 (setq org-publish-project-alist
       `(("blog-org"
@@ -26,7 +27,7 @@
 	 :section-numbers nil
 	 :with-toc t
 	 :html-head "<link rel=\"stylesheet\" 
-		href=\"/css/style.css\" 
+		href=\"/css/pico.classless.min.css\" 
 	 	type=\"text/css\" />"
  	 :html-preamble nil
 	 :html-postamble nil)
@@ -68,12 +69,34 @@
   (interactive)
   (org-publish-current-file t))
 
+(defun my/start-blog-server()
+  (unless (and my/blog-server-process
+	       (process-live-p my/blog-server-process))
+    (setq my/blog-server-process
+	  (start-process "blog-server" "*blog-server*"
+			 "python3" "-m" "http.server" "8080"
+			 "--directory" my/blog-public-dir))
+    (sleep-for 1)
+    (message "Blog server started")))
+
+(defun my/stop-blog-server()
+  (interactive)
+  (when (and my/blog-server-process
+	     (process-live-p my/blog-server-process))
+    (delete-process my/blog-server-process)
+    (setq my/blog-server-process nil)
+    (message "Blog server stopped")))
+
 (defun my/open-blog-html ()
   (interactive)
-  (let ((html-path (my/blog-html-path)))
+  (let* ((html-path (my/blog-html-path))
+	(html-url (concat "http://localhost:8080/"
+			  (file-name-nondirectory html-path))))
     (unless (file-exists-p html-path)
       (user-error "Published HTML does not exist. Publish first."))
-    (browse-url-of-file html-path)))
+    (my/start-blog-server)
+    (message "Opening: %s" html-url)
+    (browse-url html-url)))
 
 (defun my/preview-post-from-notes ()
   (interactive)
