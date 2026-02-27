@@ -129,4 +129,7 @@
 (defun my/publish-and-deploy()
   (interactive)
   (my/publish-blog)
-  (shell-command "rsync -avz %s %s" my/blog-public-dir my/blog-pi-path))
+  (shell-command 
+    (format "rsync -avz --delete %s %s" 
+	    my/blog-public-dir 
+	    my/blog-pi-path)))
