@@ -1217,7 +1217,7 @@ If HEADING-POS is nil, use the current heading."
 (defun my/create-p&l-drawer (pos initial-pnl)
   (save-excursion
     (goto-char pos)
-    (my/write-property-drawer `(("P&L" . ,(number-to-string initial-pnl))))))
+    (my/write-property-drawer `(("P&L" . ,(my/format-money initial-pnl))))))
 
 (defun my/update-month-pnl (trade-pnl)
   (let* ((month-pos (point))
