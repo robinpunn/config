@@ -1,1 +1,0 @@
-ACTION=="add", SUBSYSTEM=="power_supply", KERNEL=="BAT1", ATTR{charge_control_end_threshold}="80"
