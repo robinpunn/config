@@ -5,7 +5,13 @@
 # Read `man 5 sway` for a complete reference.
 
 ### Variables
+#setenv GDK_SCALE 1 
+#setenv GDK_DPI_SCALE 1.5
 #
+#setenv QT_SCALE_FACTOR 1.5
+#
+#setenv XFT_DPI 144
+
 # Logo key. Use Mod1 for Alt.
 set $mod Mod4
 # Home row direction keys, like vim
@@ -34,7 +40,8 @@ input type:keyboard xkb_numlock enabled
 # Default wallpaper (more resolutions are available in /usr/share/backgrounds/sway/)
 # Requires: desktop-backgrounds-compat, swaybg, jxl-pixbuf-loader
 output * bg /usr/share/backgrounds/default.jxl fill
-#
+
+output eDP-1 scale 1 scale_filter nearest
 # Example configuration:
 #
 #   output HDMI-A-1 resolution 1920x1080 position 1920,0
@@ -53,6 +60,7 @@ output * bg /usr/share/backgrounds/default.jxl fill
 # This will lock your screen after 300 seconds of inactivity, then turn off
 # your displays after another 300 seconds, and turn your screens back on when
 # resumed. It will also lock your screen before your computer goes to sleep.
+for_window [class="steam_app.*"] inhibit_idle focus
 
 ### Input configuration
 #
@@ -239,7 +247,6 @@ bindsym $mod+r mode "resize"
 # brightness
 bindsym F7 exec brightnessctl set 1%-
 bindsym F8 exec brightnessctl set +1%
-
 
 # Include configs from 3 locations:
 #  - /usr/share/sway/config.d
