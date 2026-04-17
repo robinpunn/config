@@ -1,0 +1,24 @@
+#!/bin/sh
+
+cache=/dev/shm/cpu_cache
+
+read -r _ user nice system idle iowait irq softirq steal _ < /proc/stat
+
+idle_all=$((idle + iowait))
+total=$((user + nice + system + idle + iowait + irq + softirq + steal))
+
+if [ -f "$cache" ]; then
+    read -r prev_total prev_idle < "$cache"
+
+    total_diff=$((total - prev_total))
+    idle_diff=$((idle_all - prev_idle))
+
+    if [ "$total_diff" -gt 0 ]; then
+        usage=$((100 * (total_diff - idle_diff) / total_diff))
+        printf " %s%% " "$usage"
+    fi
+else
+    printf " --%% "
+fi
+
+printf "%s %s\n" "$total" "$idle_all" > "$cache"

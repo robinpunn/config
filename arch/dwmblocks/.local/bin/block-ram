@@ -1,0 +1,14 @@
+#!/bin/sh
+
+while read -r key value _; do
+    case "$key" in
+        MemTotal:) total=$value ;;
+        MemAvailable:) avail=$value ;;
+    esac
+    [ -n "$total" ] && [ -n "$avail" ] && break
+done < /proc/meminfo
+
+used=$((total - avail))
+usage=$((100 * used / total))
+
+printf " %s%% " "$usage"
