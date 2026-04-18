@@ -15,10 +15,10 @@ if [ -f "$cache" ]; then
 
     if [ "$total_diff" -gt 0 ]; then
         usage=$((100 * (total_diff - idle_diff) / total_diff))
-        printf " %s%% " "$usage"
+        printf " %s%% " "$usage"
     fi
 else
-    printf " --%% "
+    printf " --%% "
 fi
 
-printf "%s %s\n" "$total" "$idle_all" > "$cache"
+printf "%s %s" "$total" "$idle_all" > "$cache"

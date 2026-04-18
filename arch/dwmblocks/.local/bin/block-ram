@@ -11,4 +11,4 @@ done < /proc/meminfo
 used=$((total - avail))
 usage=$((100 * used / total))
 
-printf " %s%% " "$usage"
+printf " %s%% " "$usage"

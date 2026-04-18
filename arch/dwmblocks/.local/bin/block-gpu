@@ -1,3 +1,3 @@
 #!/bin/sh
 TEMP=$(/usr/bin/nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader)
-printf " %s°C  >> " "$TEMP"
+printf " %s°C " "$TEMP"

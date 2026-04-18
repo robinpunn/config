@@ -1,0 +1,14 @@
+#!/bin/sh
+
+base="/sys/class/backlight/$(ls /sys/class/backlight/ | head -1)"
+
+read -r cur < "$base/brightness"
+read -r max < "$base/max_brightness"
+
+[ -z "$cur" ] && exit 1
+[ -z "$max" ] && exit 1
+[ "$max" -eq 0 ] && exit 1
+
+percent=$((100 * cur / max))
+
+printf " %s%% " "$percent"
