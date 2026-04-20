@@ -1,0 +1,9 @@
+#!/bin/sh
+
+if bluetoothctl show | grep -q "Powered: yes"; then
+	bluetoothctl power off
+else
+	bluetoothctl power on
+fi
+
+pkill -RTMIN+4 dwmblocks
