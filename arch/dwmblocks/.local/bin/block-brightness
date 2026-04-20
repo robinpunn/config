@@ -11,4 +11,4 @@ read -r max < "$base/max_brightness"
 
 percent=$((100 * cur / max))
 
-printf " %s%% " "$percent"
+printf " %s%% " "$percent"

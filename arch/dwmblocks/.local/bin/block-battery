@@ -1,0 +1,42 @@
+#!/bin/sh
+
+bat="/sys/class/power_supply/BAT0"
+
+capacity=$(cat "$bat/capacity")
+status=$(cat "$bat/status")
+
+case "$status" in
+	Charging) 
+		case "$capacity" in
+			[0-9]) icon="󰢜" ;;
+			1[0-9]) icon="󰂆" ;;
+			2[0-9]) icon="󰂇" ;;
+			3[0-9]) icon="󰂈" ;;
+			4[0-9]) icon="󰢝" ;;
+			5[0-9]) icon="󰂉" ;;
+			6[0-9]) icon="󰢞" ;;
+			7[0-9]) icon="󰂊" ;;
+			8[0-9]) icon="󰂋" ;;
+			*) icon="󰂅" ;;
+		esac
+		;;
+	Discharging) 
+		case "$capacity" in
+			[0-9]) icon="󰁺" ;;
+			1[0-9]) icon="󰁻" ;;
+			2[0-9]) icon="󰁼" ;;
+			3[0-9]) icon="󰁽" ;;
+			4[0-9]) icon="󰁾" ;;
+			5[0-9]) icon="󰁿" ;;
+			6[0-9]) icon="󰂀" ;;
+			7[0-9]) icon="󰂁" ;;
+			8[0-9]) icon="󰂂" ;;
+			*) icon="󰁹" ;;
+		esac
+		;;
+	Full) icon="󰁹" ;;
+	"Not charging") icon="" ;;
+	*) icon="?" ;;
+esac
+
+printf "%s %s%% " "$icon" "$capacity"
