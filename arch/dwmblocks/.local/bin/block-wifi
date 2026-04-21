@@ -1,0 +1,20 @@
+#!/bin/sh
+
+signal=$(nmcli -t -f IN-USE,SIGNAL dev wifi list | awk -F: '/^\*/{print $2}')
+vpn=$(nmcli -t -f TYPE con show --active | grep -qE "vpn|wireguard|dummy" && echo yes)
+
+if [ -z "$signal" ]; then
+	icon="󰤮"
+elif [ "$signal" -ge 90 ]; then
+	icon=$([ -n "$vpn" ] && echo "󰤪" || echo "󰤨")
+elif [ "$signal" -ge 76 ]; then
+	icon=$([ -n "$vpn" ] && echo "󱛍" || echo "󰤥")
+elif [ "$signal" -ge 56 ]; then
+	icon=$([ -n "$vpn" ] && echo "󱛌" || echo "󰤢")
+elif [ "$signal" -ge 26 ]; then
+	icon=$([ -n "$vpn" ] && echo "󱛋" || echo "󰤟")
+else
+	icon=$([ -n "$vpn" ] && echo "󰤬" || echo "󰤯")
+fi
+
+printf "%s " "$icon"

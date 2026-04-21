@@ -1,0 +1,24 @@
+#!/bin/sh
+
+SINK="@DEFAULT_SINK@"
+ACTION=$1
+AMOUNT=$2
+
+case $ACTION in
+    up)
+        pactl set-sink-volume "$SINK" +"$AMOUNT"
+        
+        CUR_VOL=$(pactl get-sink-volume "$SINK" | grep -Po '[0-9]+(?=%)' | head -1)
+        if [ "$CUR_VOL" -gt 100 ]; then
+            pactl set-sink-volume "$SINK" 100%
+        fi
+        ;;
+    down)
+        pactl set-sink-volume "$SINK" -"$AMOUNT"
+        ;;
+    mute)
+        pactl set-sink-mute "$SINK" toggle
+        ;;
+esac
+
+pkill -RTMIN+2 dwmblocks

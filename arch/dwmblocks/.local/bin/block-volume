@@ -1,0 +1,18 @@
+#!/bin/sh
+
+vol=$(pactl get-sink-volume @DEFAULT_SINK@ | awk '{print $5}' | head -n1 | tr -d '%')
+mute=$(pactl get-sink-mute @DEFAULT_SINK@ | awk '{print $2}')
+
+if [ "$mute" = "yes" ]; then
+	icon="󰝟"
+elif [ "$vol" -ge 70 ]; then
+	icon="󰕾"
+elif [ "$vol" -ge 30 ]; then
+	icon="󰖀"
+elif [ "$vol" -ge 1 ]; then
+	icon="󰕿"
+else
+	icon="󰝞"
+fi
+
+printf "%s %s%% " "$icon" "$vol"
