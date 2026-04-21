@@ -1,18 +1,23 @@
 #!/bin/sh
 
+sink=$(pactl get-default-sink)
 vol=$(pactl get-sink-volume @DEFAULT_SINK@ | awk '{print $5}' | head -n1 | tr -d '%')
 mute=$(pactl get-sink-mute @DEFAULT_SINK@ | awk '{print $2}')
 
+echo "$sink" | grep -q "Headphones" && dev="Headphones" || dev="speaker"
+
 if [ "$mute" = "yes" ]; then
 	icon="󰝟"
-elif [ "$vol" -ge 70 ]; then
-	icon="󰕾"
-elif [ "$vol" -ge 30 ]; then
-	icon="󰖀"
-elif [ "$vol" -ge 1 ]; then
-	icon="󰕿"
 else
-	icon="󰝞"
+	if [ "$dev" = "Headphones" ]; then
+		icon=""
+	else
+		if [ "$vol" -ge 70 ]; then icon="󰕾"
+		elif [ "$vol" -ge 30 ]; then icon="󰖀"
+		elif [ "$vol" -ge 1 ]; then icon="󰕿"
+		else icon="󰝞"
+		fi
+	fi
 fi
 
 printf "%s %s%% " "$icon" "$vol"
